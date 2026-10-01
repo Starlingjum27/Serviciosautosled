@@ -1,7 +1,6 @@
 import streamlit as st
 from app.db import supabase
-from app.modules import dashboard, productos, tasa_bcv
-
+from app.modules import dashboard, productos, tasa_bcv, ventas # <-- Agregamos ventas
 
 # ... (resto del código de configuración y login igual) ...
 
