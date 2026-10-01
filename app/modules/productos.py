@@ -37,22 +37,23 @@ def render():
     tasa_actual = obtener_ultima_tasa()
     
     if tasa_actual == 0.0:
-        st.warning("⚠️ No hay tasa BCV registrada. Ve al módulo 'Tasa BCV' y registra una.")
+        st.warning("⚠️ No hay tasa BCV registrada.")
     else:
         st.info(f"💱 Tasa BCV aplicada hoy: **Bs. {tasa_actual:.2f}**")
 
-    # Crear pestañas para organizar la pantalla
-    tab_catalogo, tab_categorias = st.tabs(["📋 Catálogo de Productos", "⚙️ Gestión de Categorías"])
+    # Pestañas
+    tab_catalogo, tab_categorias, tab_importar = st.tabs([
+        "📋 Catálogo de Productos", "⚙️ Gestión de Categorías", "📥 Carga Masiva (Excel)"
+    ])
 
     # ==========================================
     # PESTAÑA 1: CATÁLOGO DE PRODUCTOS
     # ==========================================
     with tab_catalogo:
-        # --- Formulario Nuevo Producto ---
         with st.expander("➕ Agregar Nuevo Producto", expanded=False):
             categorias = obtener_categorias()
             if not categorias:
-                st.warning("Primero debes crear al menos una categoría en la pestaña 'Gestión de Categorías'.")
+                st.warning("Primero crea una categoría.")
             else:
                 with st.form("nuevo_producto_form"):
                     col1, col2 = st.columns(2)
@@ -85,9 +86,8 @@ def render():
                             except Exception as e:
                                 st.error(f"Error: {e}")
 
-        # --- Listado y Búsqueda ---
+        # Listado y Búsqueda
         st.subheader("🔍 Inventario Actual")
-        
         col_busq, col_filtro = st.columns([2, 1])
         with col_busq:
             busqueda = st.text_input("Buscar por SKU, Nombre o Marca", "")
@@ -95,7 +95,6 @@ def render():
             filtro_cat = st.selectbox("Filtrar por Categoría", ["Todas"] + [c['nombre'] for c in obtener_categorias()])
 
         try:
-            # Hacemos un "join" manual para traer el nombre de la categoría
             res_prod = supabase.table("productos").select("*").execute()
             res_cat = supabase.table("categorias").select("id, nombre").execute()
             
@@ -103,14 +102,21 @@ def render():
                 df = pd.DataFrame(res_prod.data)
                 df_cat = pd.DataFrame(res_cat.data)
                 
-                # Mapear categoria_id a nombre
+                # --- CORRECCIÓN DEL ERROR DE TIPOS AQUÍ ---
+                # Convertimos ambas columnas a tipo numérico entero para poder cruzarlas
+                if 'categoria_id' in df.columns:
+                    df['categoria_id'] = pd.to_numeric(df['categoria_id'], errors='coerce').fillna(0).astype(int)
+                else:
+                    df['categoria_id'] = 0
+                
                 if not df_cat.empty:
+                    df_cat['id'] = pd.to_numeric(df_cat['id'], errors='coerce').fillna(0).astype(int)
                     df = df.merge(df_cat, left_on='categoria_id', right_on='id', how='left', suffixes=('', '_cat'))
                     df['categoria_nombre'] = df['nombre_cat'].fillna('Sin Categoría')
                 else:
                     df['categoria_nombre'] = 'Sin Categoría'
 
-                # Aplicar Filtros
+                # Filtros
                 if busqueda:
                     mask = df[['sku', 'nombre', 'marca']].astype(str).apply(
                         lambda x: x.str.contains(busqueda, case=False, na=False)
@@ -121,7 +127,6 @@ def render():
                     df = df[df['categoria_nombre'] == filtro_cat]
 
                 if not df.empty:
-                    # Formatear precios y alertas de stock
                     df['precio_bs'] = df['precio_usd'] * tasa_actual if tasa_actual else 0.0
                     df['precio_bs'] = df['precio_bs'].apply(lambda x: f"Bs. {x:.2f}" if tasa_actual else "N/A")
                     df['precio_usd_fmt'] = df['precio_usd'].apply(lambda x: f"${x:.2f}")
@@ -142,7 +147,7 @@ def render():
         except Exception as e:
             st.error(f"Error cargando inventario: {e}")
 
-        # --- Editar / Eliminar Producto ---
+        # Editar / Eliminar
         st.markdown("---")
         st.subheader("🛠️ Editar o Eliminar Producto")
         try:
@@ -200,7 +205,7 @@ def render():
     with tab_categorias:
         st.subheader("Crear Nueva Categoría")
         with st.form("nueva_cat_form"):
-            nueva_cat = st.text_input("Nombre de la Categoría (Ej: Frenos, Suspensión)")
+            nueva_cat = st.text_input("Nombre de la Categoría")
             if st.form_submit_button("➕ Agregar Categoría"):
                 if nueva_cat:
                     try:
@@ -209,12 +214,9 @@ def render():
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
-                else:
-                    st.warning("Escribe un nombre.")
 
         st.markdown("---")
         st.subheader("Categorías Existentes")
-        
         categorias = obtener_categorias()
         if categorias:
             for cat in categorias:
@@ -226,7 +228,6 @@ def render():
                         st.session_state.editando_categoria = cat['id']
                 with col3:
                     if st.button("🗑️ Eliminar", key=f"del_cat_{cat['id']}"):
-                        # Verificar si tiene productos asociados
                         prod_asociados = supabase.table("productos").select("id").eq("categoria_id", cat['id']).execute()
                         if prod_asociados.data:
                             st.error(f"No se puede eliminar '{cat['nombre']}' porque tiene productos asociados.")
@@ -235,7 +236,6 @@ def render():
                             st.success(f"Categoría '{cat['nombre']}' eliminada.")
                             st.rerun()
 
-                # Formulario de edición de categoría
                 if st.session_state.get('editando_categoria') == cat['id']:
                     with st.form(f"edit_cat_form_{cat['id']}"):
                         nuevo_nombre = st.text_input("Nuevo Nombre", value=cat['nombre'])
@@ -244,5 +244,68 @@ def render():
                             st.session_state.editando_categoria = None
                             st.success("Categoría actualizada.")
                             st.rerun()
-        else:
-            st.info("No hay categorías registradas.")
+
+    # ==========================================
+    # PESTAÑA 3: CARGA MASIVA DESDE EXCEL
+    # ==========================================
+    with tab_importar:
+        st.subheader("📥 Importar Productos desde Excel")
+        st.markdown("Sube tu archivo `AUTOS LED.xlsx`. El sistema leerá la hoja **'LISTA'** y cargará los productos automáticamente.")
+        
+        archivo = st.file_uploader("Selecciona el archivo Excel", type=["xlsx", "xls"])
+        
+        if archivo is not None:
+            try:
+                # Leemos el Excel saltando las primeras 5 filas (que son títulos)
+                df_excel = pd.read_excel(archivo, sheet_name="LISTA", skiprows=5)
+                
+                # Limpiamos los datos
+                df_excel = df_excel.dropna(subset=['CODIGO']) # Quitar filas sin código
+                df_excel = df_excel[df_excel['CODIGO'] != 'CODIGO'] # Quitar encabezados repetidos
+                
+                st.write("Vista previa de los datos a importar:")
+                st.dataframe(df_excel.head(5), use_container_width=True)
+                
+                # Seleccionar categoría para todos
+                categorias = obtener_categorias()
+                cat_importar = st.selectbox("Asignar todos estos productos a la categoría:", categorias, format_func=lambda x: x['nombre'])
+                
+                if st.button("🚀 Iniciar Importación Masiva"):
+                    progreso = st.progress(0)
+                    exitosos = 0
+                    
+                    for index, row in df_excel.iterrows():
+                        try:
+                            sku = str(row['CODIGO']).strip()
+                            nombre = str(row['DESCRIPCION']).strip()
+                            stock = int(row['CANTIDAD']) if pd.notna(row['CANTIDAD']) else 0
+                            precio = float(row['PRECIO']) if pd.notna(row['PRECIO']) else 0.0
+                            
+                            # Calcular un costo estimado (60% del precio) para que no quede en 0
+                            costo_estimado = round(precio * 0.6, 2)
+                            
+                            data = {
+                                "sku": sku,
+                                "nombre": nombre,
+                                "marca": "Genérico",
+                                "categoria_id": cat_importar['id'],
+                                "precio_usd": precio,
+                                "costo_usd": costo_estimado,
+                                "stock_actual": stock,
+                                "stock_minimo": 2
+                            }
+                            
+                            # Insertar uno por uno para evitar errores de duplicados
+                            supabase.table("productos").insert(data).execute()
+                            exitosos += 1
+                        except Exception as e:
+                            # Si el SKU ya existe, lo ignoramos
+                            pass
+                        
+                        progreso.progress((index + 1) / len(df_excel))
+                    
+                    st.success(f"¡Importación completada! Se cargaron {exitosos} productos nuevos.")
+                    st.rerun()
+                    
+            except Exception as e:
+                st.error(f"Error al leer el archivo. Asegúrate de que tenga la hoja 'LISTA' y las columnas correctas. Detalle: {e}")
