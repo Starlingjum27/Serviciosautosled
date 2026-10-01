@@ -1,6 +1,7 @@
-streamlit
-supabase
+streamlit>=1.40
+supabase>=2.4
 python-dotenv
 pandas
 requests
 openpyxl
+tzdata
