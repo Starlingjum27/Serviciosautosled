@@ -1,6 +1,7 @@
 import streamlit as st
 from app.db import supabase
 import pandas as pd
+import unicodedata
 
 def obtener_ultima_tasa():
     """Obtiene la tasa BCV más reciente de la base de datos."""
@@ -12,13 +13,24 @@ def obtener_ultima_tasa():
         pass
     return 0.0
 
+def obtener_categorias():
+    """Obtiene la lista de categorías desde la base de datos."""
+    try:
+        res = supabase.table("categorias").select("nombre").order("nombre").execute()
+        if res.data:
+            return [c['nombre'] for c in res.data]
+    except:
+        pass
+    # Categorías por defecto si la tabla está vacía
+    return ["Luces LED", "Módulos", "Sensores", "Accesorios", "Kits", "Otros"]
+
 def generar_sku(categoria):
-    """Genera un SKU automático basado en la categoría y la cantidad de productos."""
-    prefijos = {
-        "Luces LED": "LED", "Módulos": "MOD", "Sensores": "SEN", 
-        "Accesorios": "ACC", "Kits": "KIT", "Otros": "OTR"
-    }
-    prefijo = prefijos.get(categoria, "GEN")
+    """Genera un SKU automático basado en las 3 primeras letras de la categoría."""
+    # Limpiar el nombre de la categoría (quitar acentos, espacios y pasar a mayúsculas)
+    texto = unicodedata.normalize('NFKD', categoria).encode('ASCII', 'ignore').decode('utf-8')
+    texto = texto.upper().replace(" ", "")
+    prefijo = texto[:3] if len(texto) >= 3 else texto.ljust(3, 'X')
+    
     try:
         # Contar cuántos productos hay con ese prefijo
         res = supabase.table("productos").select("id").ilike("sku", f"{prefijo}-%").execute()
@@ -39,13 +51,29 @@ def render():
     else:
         st.info(f"💱 Tasa BCV aplicada hoy: **Bs. {tasa_actual:.2f}**")
     
-    # --- 1. Formulario para agregar producto ---
+    # --- 1. Gestión de Categorías (NUEVO) ---
+    with st.expander("⚙️ Gestionar Categorías", expanded=False):
+        st.markdown("¿No encuentras una categoría? Agrégala aquí y estará disponible de inmediato.")
+        with st.form("nueva_categoria_form"):
+            nueva_cat = st.text_input("Nombre de la Nueva Categoría (Ej: Frenos, Suspensión, Motor)")
+            submit_cat = st.form_submit_button("Agregar Categoría")
+            if submit_cat and nueva_cat:
+                try:
+                    supabase.table("categorias").insert({"nombre": nueva_cat}).execute()
+                    st.success(f"Categoría '{nueva_cat}' agregada correctamente.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al agregar categoría: {e}")
+
+    # --- 2. Formulario para agregar producto ---
     with st.expander("➕ Agregar Nuevo Producto", expanded=False):
         with st.form("nuevo_producto"):
             col1, col2 = st.columns(2)
             with col1:
-                categoria = st.selectbox("Categoría", ["Luces LED", "Módulos", "Sensores", "Accesorios", "Kits", "Otros"])
-                # El SKU se genera automáticamente basado en la categoría seleccionada
+                # Ahora las categorías se cargan dinámicamente de la base de datos
+                categorias_disponibles = obtener_categorias()
+                categoria = st.selectbox("Categoría", categorias_disponibles)
+                
                 sku_auto = generar_sku(categoria)
                 st.info(f"🔢 SKU generado automáticamente: **{sku_auto}**")
                 nombre = st.text_input("Nombre del Producto")
@@ -74,7 +102,7 @@ def render():
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-    # --- 2. Buscador y Listado ---
+    # --- 3. Buscador y Listado ---
     st.subheader("🔍 Buscar y Listar Productos")
     busqueda = st.text_input("Buscar por SKU, Nombre o Marca", "")
     
@@ -83,7 +111,6 @@ def render():
         if res.data:
             df = pd.DataFrame(res.data)
             
-            # Filtrar por búsqueda
             if busqueda:
                 mask = df[['sku', 'nombre', 'marca']].astype(str).apply(
                     lambda x: x.str.contains(busqueda, case=False, na=False)
@@ -91,7 +118,6 @@ def render():
                 df = df[mask]
             
             if not df.empty:
-                # Calcular precio en Bs
                 df['precio_bs'] = df['precio_usd'] * tasa_actual if tasa_actual else 0.0
                 df['precio_bs'] = df['precio_bs'].apply(lambda x: f"Bs. {x:.2f}" if tasa_actual else "N/A")
                 df['precio_usd'] = df['precio_usd'].apply(lambda x: f"${x:.2f}")
@@ -106,7 +132,7 @@ def render():
     except Exception as e:
         st.error(f"Error cargando productos: {e}")
 
-    # --- 3. Editar / Eliminar ---
+    # --- 4. Editar / Eliminar ---
     st.markdown("---")
     st.subheader("🛠️ Gestionar Producto (Editar / Eliminar)")
     
@@ -131,7 +157,6 @@ def render():
                         st.success(f"Producto eliminado.")
                         st.rerun()
 
-                # Formulario de edición
                 if st.session_state.editando_producto == id_producto:
                     datos = supabase.table("productos").select("*").eq("id", id_producto).execute().data[0]
                     with st.form("editar_producto_form"):
