@@ -9,6 +9,7 @@ st.set_page_config(
 )
 
 from app.db import supabase, reset_client  # noqa: E402
+from app import sidebar  # noqa: E402
 from app.modules import (  # noqa: E402
     dashboard, productos, tasa_bcv, ventas, configuracion, proveedores, compras, kardex,
 )
@@ -47,6 +48,26 @@ def cerrar_sesion():
     st.rerun()
 
 
+# (clave interna, etiqueta visible, ícono) agrupados por sección
+MENU = [
+    ("Principal", [
+        ("📊 Dashboard", "Dashboard", ":material/space_dashboard:"),
+    ]),
+    ("Operaciones", [
+        ("🛒 Punto de Venta", "Punto de venta", ":material/point_of_sale:"),
+        ("📥 Compras", "Compras", ":material/shopping_cart:"),
+    ]),
+    ("Inventario", [
+        ("📦 Productos", "Productos", ":material/inventory_2:"),
+        ("🏭 Proveedores", "Proveedores", ":material/local_shipping:"),
+        ("📒 Kardex", "Kardex", ":material/receipt_long:"),
+    ]),
+    ("Sistema", [
+        ("💱 Tasa BCV", "Tasa BCV", ":material/currency_exchange:"),
+        ("⚙️ Configuración", "Configuración", ":material/settings:"),
+    ]),
+]
+
 PAGINAS = {
     "📊 Dashboard": dashboard.render,
     "🛒 Punto de Venta": ventas.render,
@@ -71,15 +92,7 @@ def main():
         if st.session_state.tasa_auto["estado"] == "ok":
             st.toast(st.session_state.tasa_auto["mensaje"], icon="💱")
 
-    st.sidebar.markdown(f"👤 **{st.session_state.usuario.email}**")
-    estado_tasa = st.session_state.tasa_auto
-    if estado_tasa["estado"] in ("error", "revision"):
-        st.sidebar.warning(f"💱 {estado_tasa['mensaje']}")
-    st.sidebar.divider()
-    pagina = st.sidebar.radio("Navegación", list(PAGINAS), key="nav")
-    st.sidebar.divider()
-    if st.sidebar.button("🚪 Cerrar sesión", use_container_width=True):
-        cerrar_sesion()
+    pagina = sidebar.render(MENU, "📊 Dashboard", cerrar_sesion)
     PAGINAS[pagina]()
 
 
