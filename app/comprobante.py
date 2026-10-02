@@ -49,6 +49,18 @@ def generar_html(venta: dict, detalle: list, pagos: list, cfg: dict, con_boton: 
     if venta.get("estado") == "ANULADA":
         anulada = f"<div class='anulada'>ANULADA<br><small>{e(venta.get('motivo_anulacion'))}</small></div>"
 
+    aplica_iva = venta.get("aplica_iva", True)
+    titulo_doc = "COMPROBANTE DE VENTA" if aplica_iva else "NOTA DE ENTREGA"
+    if aplica_iva:
+        filas_iva = f"""<tr><td>Exento (E)</td><td class="r">{fmt_usd(venta['exento_usd'])}</td><td class="r">{fmt_bs(venta['exento_bs'])}</td></tr>
+    <tr><td>Base imponible</td><td class="r">{fmt_usd(venta['base_imponible_usd'])}</td><td class="r">{fmt_bs(venta['base_imponible_bs'])}</td></tr>
+    <tr><td>IVA {fmt_num(venta['iva_porcentaje'], 0)}%</td><td class="r">{fmt_usd(venta['iva_usd'])}</td><td class="r">{fmt_bs(venta['iva_bs'])}</td></tr>"""
+    else:
+        sub_usd = D(venta['exento_usd']) + D(venta['base_imponible_usd'])
+        sub_bs = D(venta['exento_bs']) + D(venta['base_imponible_bs'])
+        filas_iva = f"""<tr><td>Subtotal</td><td class="r">{fmt_usd(sub_usd)}</td><td class="r">{fmt_bs(sub_bs)}</td></tr>
+    <tr><td>IVA</td><td class="r" colspan="2">No aplica</td></tr>"""
+
     boton = """<button class="noprint" onclick="window.print()">🖨️ Imprimir</button>""" if con_boton else ""
 
     return f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
@@ -77,6 +89,7 @@ def generar_html(venta: dict, detalle: list, pagos: list, cfg: dict, con_boton: 
   <p class="c">{e(cfg.get('empresa_direccion'))}</p>
   <p class="c">{e(cfg.get('empresa_telefono'))}</p>
   <hr>
+  <p class="c"><b>{titulo_doc}</b></p>
   <p><b>Documento N°:</b> {e(venta['numero'])}<br>
      <b>Fecha:</b> {fecha_hora_local(venta['fecha'])}<br>
      <b>Cliente:</b> {e(venta['cliente_nombre'])}<br>
@@ -86,9 +99,7 @@ def generar_html(venta: dict, detalle: list, pagos: list, cfg: dict, con_boton: 
   <table><tr><td><b>Descripción</b></td><td class="r"><b>USD</b></td><td class="r"><b>Bs</b></td></tr>{filas}</table>
   <hr>
   <table>
-    <tr><td>Exento (E)</td><td class="r">{fmt_usd(venta['exento_usd'])}</td><td class="r">{fmt_bs(venta['exento_bs'])}</td></tr>
-    <tr><td>Base imponible</td><td class="r">{fmt_usd(venta['base_imponible_usd'])}</td><td class="r">{fmt_bs(venta['base_imponible_bs'])}</td></tr>
-    <tr><td>IVA {fmt_num(venta['iva_porcentaje'], 0)}%</td><td class="r">{fmt_usd(venta['iva_usd'])}</td><td class="r">{fmt_bs(venta['iva_bs'])}</td></tr>
+    {filas_iva}
     <tr class="tot"><td>TOTAL</td><td class="r">{fmt_usd(venta['total_usd'])}</td><td class="r">{fmt_bs(venta['total_bs'])}</td></tr>
     {igtf}
     <tr class="tot"><td>TOTAL A PAGAR</td><td class="r">{fmt_usd(venta['total_pagar_usd'])}</td><td class="r">{fmt_bs(venta['total_pagar_bs'])}</td></tr>
