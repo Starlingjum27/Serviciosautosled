@@ -185,6 +185,7 @@ def _guardar(valores: dict) -> bool:
     except Exception as e:
         st.error(U.mensaje_error(e))
         return False
+    st.session_state.pop("_sb_cache", None)   # el menú lateral toma el rol actualizado
     return True
 
 
