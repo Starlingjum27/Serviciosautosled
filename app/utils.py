@@ -16,6 +16,7 @@ CONFIG_DEFAULT = {
     "empresa_direccion": "",
     "empresa_telefono": "",
     "iva_porcentaje": "16",
+    "iva_por_defecto": "true",
     "igtf_activo": "false",
     "igtf_porcentaje": "3",
     "serie_documento": "NE",
