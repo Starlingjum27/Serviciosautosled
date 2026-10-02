@@ -21,10 +21,68 @@ def obtener_tasa_automatica():
     return None, None
 
 
+def auto_actualizar_tasa(forzar: bool = False) -> dict:
+    """
+    Se ejecuta al iniciar sesión. Registra la tasa del día si:
+      - la actualización automática está activa (Configuración),
+      - es día hábil (sábado y domingo se mantiene la del viernes),
+      - aún no hay tasa con fecha de hoy (nunca sobrescribe una ya cargada),
+      - el valor no varía más de 10% respecto a la vigente (protección contra datos erróneos).
+    Devuelve {"estado": ok|al_dia|fin_semana|desactivada|revision|error, "mensaje": str}.
+    """
+    cfg = U.obtener_config(supabase)
+    if not forzar and not U.es_verdadero(cfg.get("tasa_automatica", "true")):
+        return {"estado": "desactivada", "mensaje": "La actualización automática está desactivada."}
+
+    hoy = U.hoy_vzla()
+    if hoy.weekday() >= 5:
+        return {"estado": "fin_semana",
+                "mensaje": "Fin de semana: se usa la tasa del último día hábil."}
+    try:
+        existe = supabase.table("tasas_bcv").select("tasa").eq("fecha", str(hoy)).limit(1).execute().data
+    except Exception as e:
+        return {"estado": "error", "mensaje": f"No se pudo leer la base de datos: {U.mensaje_error(e)}"}
+    if existe and not forzar:
+        return {"estado": "al_dia",
+                "mensaje": f"Tasa de hoy ya registrada: Bs. {U.fmt_num(existe[0]['tasa'], 4)}"}
+
+    tasa, _ = obtener_tasa_automatica()
+    if not tasa:
+        return {"estado": "error",
+                "mensaje": "No se pudo consultar la tasa oficial. Regístrala manualmente en 💱 Tasa BCV."}
+
+    _, vigente = U.tasa_vigente(supabase)
+    if vigente and abs(U.D(tasa) - vigente) / vigente * 100 > 10:
+        return {"estado": "revision",
+                "mensaje": f"La tasa consultada (Bs. {U.fmt_num(tasa, 4)}) varía más de 10% respecto a la vigente. "
+                           "Verifícala en bcv.org.ve y regístrala manualmente."}
+
+    usuario = st.session_state.get("usuario")
+    try:
+        supabase.table("tasas_bcv").upsert(
+            {"fecha": str(hoy), "tasa": round(tasa, 4), "fuente": "Automática · ve.dolarapi.com",
+             "usuario_id": getattr(usuario, "id", None)},
+            on_conflict="fecha",
+        ).execute()
+    except Exception as e:
+        return {"estado": "error", "mensaje": f"No se pudo guardar la tasa: {U.mensaje_error(e)}"}
+    return {"estado": "ok", "mensaje": f"Tasa BCV actualizada automáticamente: Bs. {U.fmt_num(tasa, 4)}"}
+
+
 def render():
     st.title("💱 Tasa BCV")
     st.caption("Única tasa legal para convertir precios USD → Bs. Regístrala con su **fecha valor** "
                "(el viernes en la tarde el BCV publica la tasa con fecha valor del lunes).")
+
+    estado = st.session_state.get("tasa_auto")
+    if estado:
+        icono = {"ok": "✅", "al_dia": "✅", "fin_semana": "📅", "desactivada": "⏸️"}.get(estado["estado"], "⚠️")
+        c1, c2 = st.columns([4, 1])
+        c1.caption(f"{icono} **Actualización automática:** {estado['mensaje']}")
+        if c2.button("🔄 Reintentar", use_container_width=True, help="Consulta la API y registra la tasa de hoy"):
+            with st.spinner("Consultando tasa oficial..."):
+                st.session_state.tasa_auto = auto_actualizar_tasa(forzar=True)
+            st.rerun()
 
     fecha_vig, tasa_vig = U.tasa_vigente(supabase)
     if tasa_vig:
