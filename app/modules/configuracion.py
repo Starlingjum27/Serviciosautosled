@@ -26,6 +26,10 @@ def render():
         iva = c1.number_input("IVA general (%)", 0.0, 100.0, float(cfg["iva_porcentaje"]), 1.0)
         igtf_activo = c2.toggle("Cobrar IGTF (Contribuyente Especial)", U.es_verdadero(cfg["igtf_activo"]))
         igtf = c3.number_input("IGTF (%)", 0.0, 100.0, float(cfg["igtf_porcentaje"]), 0.5)
+        iva_defecto = st.toggle("Las ventas nuevas arrancan CON IVA",
+                                U.es_verdadero(cfg.get("iva_por_defecto", "true")),
+                                help="Apágalo si la mayoría de tus ventas son notas de entrega sin IVA. "
+                                     "El cajero igual puede cambiarlo en cada venta.")
         st.caption("El IGTF solo se calcula sobre la parte de la factura pagada en divisas, "
                    "y solo si la empresa es Contribuyente Especial.")
 
@@ -46,7 +50,7 @@ def render():
                 valores = {
                     "empresa_nombre": nombre.strip().upper(), "empresa_rif": rif.strip().upper(),
                     "empresa_direccion": direccion.strip(), "empresa_telefono": telefono.strip(),
-                    "iva_porcentaje": f"{iva:g}", "igtf_activo": str(igtf_activo).lower(),
+                    "iva_porcentaje": f"{iva:g}", "iva_por_defecto": str(iva_defecto).lower(), "igtf_activo": str(igtf_activo).lower(),
                     "igtf_porcentaje": f"{igtf:g}", "serie_documento": serie.strip().upper() or "NE",
                     "descuento_max_pct": f"{desc_max:g}", "tasa_dias_max": str(int(dias)),
                     "permitir_venta_sin_stock": str(sin_stock).lower(),
