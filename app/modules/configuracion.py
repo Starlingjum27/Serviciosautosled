@@ -33,6 +33,12 @@ def render():
         st.caption("El IGTF solo se calcula sobre la parte de la factura pagada en divisas, "
                    "y solo si la empresa es Contribuyente Especial.")
 
+        st.subheader("💱 Tasa BCV")
+        tasa_auto = st.toggle("Actualizar la tasa automáticamente al iniciar sesión (días hábiles)",
+                              U.es_verdadero(cfg.get("tasa_automatica", "true")),
+                              help="Si la consulta falla o el valor parece anormal, el sistema te avisa "
+                                   "para que la registres manualmente.")
+
         st.subheader("🛒 Punto de venta")
         c1, c2, c3 = st.columns(3)
         serie = c1.text_input("Prefijo de documentos", cfg["serie_documento"], max_chars=6)
@@ -63,7 +69,7 @@ def render():
                     "igtf_porcentaje": f"{igtf:g}", "serie_documento": serie.strip().upper() or "NE",
                     "descuento_max_pct": f"{desc_max:g}", "tasa_dias_max": str(int(dias)),
                     "permitir_venta_sin_stock": str(sin_stock).lower(),
-                    "metodo_costo": metodo, "prorratear_gastos": str(prorratear).lower(),
+                    "tasa_automatica": str(tasa_auto).lower(), "metodo_costo": metodo, "prorratear_gastos": str(prorratear).lower(),
                     "emails_administradores": admins.strip(), "leyenda_documento": leyenda.strip(),
                 }
                 try:
