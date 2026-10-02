@@ -23,6 +23,7 @@ CONFIG_DEFAULT = {
     "descuento_max_pct": "10",
     "permitir_venta_sin_stock": "false",
     "tasa_dias_max": "4",
+    "tasa_automatica": "true",
     "metodo_costo": "ULTIMO",
     "prorratear_gastos": "true",
     "emails_administradores": "",
