@@ -113,3 +113,80 @@ def generar_html(venta: dict, detalle: list, pagos: list, cfg: dict, con_boton: 
      Los montos en USD son referenciales; el bolívar es la moneda de curso legal.</p>
   {boton}
 </div></body></html>"""
+
+
+# =====================================================================
+# COMPRAS
+# =====================================================================
+def cargar_compra(supabase, compra_id: int):
+    compra = supabase.table("compras").select("*").eq("id", compra_id).single().execute().data
+    detalle = supabase.table("detalle_compras").select("*").eq("compra_id", compra_id).order("id").execute().data or []
+    pagos = supabase.table("pagos_compra").select("*").eq("compra_id", compra_id).order("id").execute().data or []
+    return compra, detalle, pagos
+
+
+def generar_html_compra(compra: dict, detalle: list, pagos: list, cfg: dict, con_boton: bool = True) -> str:
+    e = lambda s: escape(str(s or ""))
+    filas = "".join(f"""
+      <tr><td>{e(d['sku'])}</td><td>{e(d['descripcion'])}</td><td class="r">{d['cantidad']}</td>
+          <td class="r">{fmt_usd(d['costo_unitario_usd'])}</td><td class="r">{fmt_usd(d['subtotal_usd'])}</td>
+          <td class="r">{fmt_bs(d['subtotal_bs'])}</td></tr>""" for d in detalle)
+    filas_pago = "".join(
+        f"<tr><td>{e(p['metodo'])}{(' · Ref ' + e(p['referencia'])) if p.get('referencia') else ''}</td>"
+        f"<td class='r'>{fmt_usd(p['monto']) if p['moneda'] == 'USD' else fmt_bs(p['monto'])}</td></tr>"
+        for p in pagos)
+    tasa = D(compra["tasa_bcv"])
+    extra = ""
+    for etiqueta, campo in (("IVA", "iva_usd"), ("Flete", "flete_usd"), ("Otros gastos", "otros_usd")):
+        if D(compra[campo]) > 0:
+            extra += (f"<tr><td>{etiqueta}</td><td class='r'>{fmt_usd(compra[campo])}</td>"
+                      f"<td class='r'>{fmt_bs(D(compra[campo]) * tasa)}</td></tr>")
+    ajuste = ""
+    if D(compra["ajuste_redondeo_bs"]) > 0:
+        ajuste = f"<p>Ajuste por redondeo: {fmt_bs(compra['ajuste_redondeo_bs'])}</p>"
+    anulada = ""
+    if compra.get("estado") == "ANULADA":
+        anulada = f"<div class='anulada'>ANULADA<br><small>{e(compra.get('motivo_anulacion'))}</small></div>"
+    boton = """<button class="noprint" onclick="window.print()">🖨️ Imprimir</button>""" if con_boton else ""
+
+    return f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>{e(compra['numero'])}</title>
+<style>
+  body {{ font-family: Arial, sans-serif; font-size: 12px; color:#000; background:#fff; margin:0; padding:16px; }}
+  .doc {{ max-width: 760px; margin: 0 auto; position: relative; }}
+  h1 {{ font-size: 18px; margin: 0; }} h2 {{ font-size: 15px; margin: 10px 0 4px; }}
+  .cab {{ display:flex; justify-content:space-between; gap:16px; }}
+  table {{ width:100%; border-collapse: collapse; margin-top:6px; }}
+  th, td {{ padding: 4px 6px; border-bottom: 1px solid #ddd; text-align:left; }}
+  th {{ background:#f2f2f2; }} .r {{ text-align:right; white-space:nowrap; }}
+  .tot td {{ font-weight:bold; font-size:13px; }}
+  .tasa {{ border:1px solid #000; padding:6px; margin:8px 0; }}
+  .anulada {{ position:absolute; top:30%; left:10%; right:10%; text-align:center; color:#c00; font-size:40px;
+              font-weight:bold; transform:rotate(-15deg); opacity:.5; border:5px solid #c00; }}
+  button {{ display:block; margin:12px auto; padding:8px 18px; font-size:14px; cursor:pointer; }}
+  @media print {{ .noprint {{ display:none; }} body {{ padding:0; }} }}
+</style></head><body><div class="doc">
+  {anulada}
+  <div class="cab">
+    <div><h1>{e(cfg.get('empresa_nombre'))}</h1>RIF: {e(cfg.get('empresa_rif'))}<br>{e(cfg.get('empresa_direccion'))}</div>
+    <div class="r"><h1>COMPRA {e(compra['numero'])}</h1>{fecha_hora_local(compra['fecha'])}<br>
+      Registrada por: {e(compra.get('usuario_email'))}</div>
+  </div>
+  <h2>Proveedor</h2>
+  {e(compra['proveedor_nombre'])} · {e(compra['proveedor_rif'])}
+  {('<br>Factura / nota del proveedor N°: ' + e(compra['factura_proveedor'])) if compra.get('factura_proveedor') else ''}
+  <h2>Productos</h2>
+  <table><tr><th>SKU</th><th>Descripción</th><th class="r">Cant.</th><th class="r">Costo $</th>
+         <th class="r">Subtotal $</th><th class="r">Subtotal Bs</th></tr>{filas}</table>
+  <table style="max-width:420px; margin-left:auto">
+    <tr><td>Subtotal</td><td class="r">{fmt_usd(compra['subtotal_usd'])}</td><td class="r">{fmt_bs(D(compra['subtotal_usd']) * tasa)}</td></tr>
+    {extra}
+    <tr class="tot"><td>TOTAL</td><td class="r">{fmt_usd(compra['total_usd'])}</td><td class="r">{fmt_bs(compra['total_bs'])}</td></tr>
+  </table>
+  <div class="tasa">Tasa BCV aplicada: <b>Bs. {fmt_num(tasa, 4)}</b> por USD · fecha valor {e(str(compra['fecha_tasa']))}
+    · Pago de contado en el acto.</div>
+  <h2>Pagos realizados</h2>
+  <table>{filas_pago}</table>
+  {ajuste}
+  {('<p><b>Observaciones:</b> ' + e(compra['observaciones']) + '</p>') if compra.get('observaciones') else ''}
+  {boton}
+</div></body></html>"""
