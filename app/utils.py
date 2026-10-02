@@ -23,6 +23,8 @@ CONFIG_DEFAULT = {
     "descuento_max_pct": "10",
     "permitir_venta_sin_stock": "false",
     "tasa_dias_max": "4",
+    "metodo_costo": "ULTIMO",
+    "prorratear_gastos": "true",
     "emails_administradores": "",
     "leyenda_documento": "DOCUMENTO NO FISCAL.",
 }
@@ -211,3 +213,42 @@ def monto_para_completar(items, pagos, tasa, cfg, moneda: str) -> Decimal:
     while x > CENT and cubre(x - CENT):
         x -= CENT
     return x
+
+
+# ---------------------------------------------------------------- compras (contado)
+def calcular_compra(items: list[dict], flete, otros, iva, pagos: list[dict], tasa, prorratear: bool = True) -> dict:
+    """
+    Espejo de registrar_compra en SQL.
+    items: [{cantidad, costo_usd}]  ·  pagos: [{moneda, monto}]
+    Total Bs = total USD × tasa BCV del día. Las compras son de contado.
+    """
+    tasa = D(tasa)
+    flete, otros, iva = r2(flete), r2(otros), r2(iva)
+    subtotal = sum((r2(D(it["cantidad"]) * D(it["costo_usd"])) for it in items), Decimal("0"))
+    factor = (1 + (flete + otros) / subtotal) if (prorratear and subtotal > 0) else Decimal("1")
+    total_usd = subtotal + iva + flete + otros
+    total_bs = r2(total_usd * tasa)
+
+    ves = sum((D(p["monto"]) for p in pagos if p["moneda"] == "VES"), Decimal("0"))
+    usd = sum((D(p["monto"]) for p in pagos if p["moneda"] == "USD"), Decimal("0"))
+    pagado_bs = ves + r2(usd * tasa)
+    falta_bs = max(total_bs - pagado_bs, Decimal("0"))
+    return {
+        "subtotal_usd": subtotal, "flete_usd": flete, "otros_usd": otros, "iva_usd": iva,
+        "total_usd": total_usd, "total_bs": total_bs, "factor": factor,
+        "pagado_bs": pagado_bs, "falta_bs": falta_bs,
+        "falta_usd": (falta_bs / tasa).quantize(CENT, rounding=ROUND_CEILING) if tasa > 0 else Decimal("0"),
+        "completo": pagado_bs + Decimal("0.009") >= total_bs,
+        "ajuste_bs": max(pagado_bs - total_bs, Decimal("0")),
+    }
+
+
+def costo_real(costo_usd, factor) -> Decimal:
+    return (D(costo_usd) * D(factor)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
+def margen_pct(precio, costo) -> Decimal | None:
+    precio, costo = D(precio), D(costo)
+    if precio <= 0:
+        return None
+    return ((precio - costo) / precio * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
