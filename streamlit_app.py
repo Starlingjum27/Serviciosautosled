@@ -9,7 +9,9 @@ st.set_page_config(
 )
 
 from app.db import supabase, reset_client  # noqa: E402
-from app.modules import dashboard, productos, tasa_bcv, ventas, configuracion  # noqa: E402
+from app.modules import (  # noqa: E402
+    dashboard, productos, tasa_bcv, ventas, configuracion, proveedores, compras, kardex,
+)
 
 # 2. Estado de sesión
 st.session_state.setdefault("autenticado", False)
@@ -48,7 +50,10 @@ def cerrar_sesion():
 PAGINAS = {
     "📊 Dashboard": dashboard.render,
     "🛒 Punto de Venta": ventas.render,
+    "📥 Compras": compras.render,
     "📦 Productos": productos.render,
+    "🏭 Proveedores": proveedores.render,
+    "📒 Kardex": kardex.render,
     "💱 Tasa BCV": tasa_bcv.render,
     "⚙️ Configuración": configuracion.render,
 }
