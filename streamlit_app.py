@@ -64,7 +64,17 @@ def main():
         login()
         return
 
+    # Tasa BCV automática: una vez por sesión, justo después de iniciar sesión
+    if "tasa_auto" not in st.session_state:
+        with st.spinner("💱 Actualizando la tasa BCV del día..."):
+            st.session_state.tasa_auto = tasa_bcv.auto_actualizar_tasa()
+        if st.session_state.tasa_auto["estado"] == "ok":
+            st.toast(st.session_state.tasa_auto["mensaje"], icon="💱")
+
     st.sidebar.markdown(f"👤 **{st.session_state.usuario.email}**")
+    estado_tasa = st.session_state.tasa_auto
+    if estado_tasa["estado"] in ("error", "revision"):
+        st.sidebar.warning(f"💱 {estado_tasa['mensaje']}")
     st.sidebar.divider()
     pagina = st.sidebar.radio("Navegación", list(PAGINAS), key="nav")
     st.sidebar.divider()
