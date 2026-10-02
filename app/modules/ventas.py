@@ -74,6 +74,18 @@ def _permitir_sin_stock() -> bool:
     return U.es_verdadero(st.session_state._pos_cfg.get("permitir_venta_sin_stock"))
 
 
+def _cfg_venta() -> dict:
+    """Configuración de ESTA venta: si no se aplica IVA, la alícuota es 0."""
+    cfg = dict(st.session_state._pos_cfg)
+    if not st.session_state.get("pos_aplicar_iva", True):
+        cfg["iva_porcentaje"] = "0"
+    return cfg
+
+
+def _tipo_documento(aplica_iva: bool) -> str:
+    return "🧾 Factura con IVA" if aplica_iva else "📄 Nota de entrega (sin IVA)"
+
+
 def _reiniciar_venta():
     ss = st.session_state
     ss.pos_carrito = []
@@ -82,7 +94,7 @@ def _reiniciar_venta():
     ss.pos_key = str(uuid.uuid4())
     ss.pos_cobro_paso = 1
     for k in list(ss.keys()):
-        if k.startswith("dlg_") or k == "pos_busqueda":
+        if k.startswith("dlg_") or k in ("pos_busqueda", "pos_aplicar_iva", "pos_iva_toggle"):
             del ss[k]
 
 
@@ -224,7 +236,7 @@ def _cb_pago(exacto: bool):
     nombre, moneda, requiere_ref = METODOS[etiqueta]
     referencia = (ss.get("dlg_ref") or "").strip()
     if exacto:
-        monto = U.monto_para_completar(ss.pos_carrito, ss.pos_pagos, ss._pos_tasa, ss._pos_cfg, moneda)
+        monto = U.monto_para_completar(ss.pos_carrito, ss.pos_pagos, ss._pos_tasa, _cfg_venta(), moneda)
     else:
         monto = U.r2(ss.get("dlg_monto") or 0)
     if monto <= 0:
@@ -302,13 +314,14 @@ def _paso_cliente():
 
 def _paso_pago():
     ss = st.session_state
-    tasa, cfg = ss._pos_tasa, ss._pos_cfg
+    tasa, cfg = ss._pos_tasa, _cfg_venta()
     cli = ss.pos_cliente
     t = U.calcular_totales(ss.pos_carrito, ss.pos_pagos, tasa, cfg)
 
     c1, c2 = st.columns([4, 1])
     c1.caption("Cliente: " + ("**CONSUMIDOR FINAL**" if cli.get("modo") == "final"
-                              else f"**{cli['nombre']}** · {cli['rif']}"))
+                              else f"**{cli['nombre']}** · {cli['rif']}")
+               + f"  ·  Documento: **{_tipo_documento(ss.get('pos_aplicar_iva', True))}**")
     if c2.button("✏️ Cambiar", use_container_width=True):
         ss.pos_cobro_paso = 1
         st.rerun(scope="fragment")
@@ -391,6 +404,7 @@ def _finalizar():
             res = supabase.rpc("registrar_venta", {
                 "p_items": items, "p_pagos": ss.pos_pagos, "p_cliente": cliente,
                 "p_observaciones": None, "p_idempotency_key": ss.pos_key,
+                "p_aplicar_iva": bool(ss.get("pos_aplicar_iva", True)),
             }).execute()
         datos = res.data
     except Exception as e:
@@ -423,6 +437,7 @@ def dialog_exito(venta_id: int):
         st.error(U.mensaje_error(e))
         return
     st.markdown(f"### Documento **{venta['numero']}**")
+    st.caption(_tipo_documento(venta.get("aplica_iva", True)))
     m1, m2 = st.columns(2)
     m1.metric("Cobrado en Bs", U.fmt_bs(venta["total_pagar_bs"]))
     m2.metric("Equivalente USD", U.fmt_usd(venta["total_pagar_usd"]))
@@ -554,19 +569,32 @@ def _ticket(tasa, cfg):
                 ss.pos_carrito.pop(i)
                 st.rerun()
 
-    t = U.calcular_totales(ss.pos_carrito, [], tasa, cfg)
+    ss.pos_aplicar_iva = st.toggle(
+        f"Aplicar IVA ({U.fmt_num(cfg.get('iva_porcentaje', 16), 0)}%)",
+        value=ss.pos_aplicar_iva, key="pos_iva_toggle",
+        help="Desactívalo para emitir una nota de entrega sin IVA.")
+    if ss.pos_aplicar_iva:
+        st.caption("🧾 Se emitirá como **factura con IVA**.")
+    else:
+        st.caption("📄 Se emitirá como **nota de entrega sin IVA**.")
+
+    t = U.calcular_totales(ss.pos_carrito, [], tasa, _cfg_venta())
     unidades = sum(it["cantidad"] for it in ss.pos_carrito)
     igtf = ""
     if t["igtf_pct"] > 0:
         igtf = (f"<br>Si paga en divisas: {U.fmt_usd(t['total_todo_divisas_usd'])} "
                 f"(incluye IGTF {U.fmt_num(t['igtf_pct'], 0)}%)")
+    if ss.pos_aplicar_iva:
+        detalle_iva = (f"Base {U.fmt_bs(t['base_bs'] + t['exento_bs'])} · IVA {U.fmt_num(t['iva_pct'], 0)}% "
+                       f"{U.fmt_bs(t['iva_bs'])}")
+    else:
+        detalle_iva = "Sin IVA · Nota de entrega"
     st.markdown(f"""
     <div class="pos-total">
       <div class="lbl">TOTAL A PAGAR · {unidades} unidad(es)</div>
       <div class="bs">{U.fmt_bs(t['total_bs'])}</div>
       <div class="usd">{U.fmt_usd(t['total_usd'])}</div>
-      <div class="det">Base {U.fmt_bs(t['base_bs'] + t['exento_bs'])} · IVA {U.fmt_num(t['iva_pct'], 0)}%
-           {U.fmt_bs(t['iva_bs'])}{igtf}</div>
+      <div class="det">{detalle_iva}{igtf}</div>
     </div>""", unsafe_allow_html=True)
 
     st.subheader("2️⃣ Cobra")
@@ -618,7 +646,8 @@ def _historial(cfg):
         with st.container(border=True):
             a, b, c, d = st.columns([3, 3, 2, 1])
             a.markdown(f"**{v['numero']}**" + ("  ❌ ANULADA" if v["estado"] == "ANULADA" else ""))
-            a.caption(U.fecha_hora_local(v["fecha"]))
+            a.caption(U.fecha_hora_local(v["fecha"])
+                      + ("" if v.get("aplica_iva", True) else "  ·  📄 Nota de entrega"))
             b.markdown(v["cliente_nombre"])
             b.caption(v["cliente_rif"])
             c.markdown(f"**{U.fmt_usd(v['total_pagar_usd'])}**")
@@ -631,7 +660,8 @@ def _historial(cfg):
     tabla = pd.DataFrame([{
         "N°": v["numero"], "Fecha": U.fecha_hora_local(v["fecha"]), "Cliente": v["cliente_nombre"],
         "RIF": v["cliente_rif"], "Total $": float(v["total_pagar_usd"]), "Total Bs": float(v["total_pagar_bs"]),
-        "IGTF $": float(v["igtf_usd"]), "Tasa": float(v["tasa_bcv"]), "Estado": v["estado"],
+        "IVA $": float(v["iva_usd"]), "IGTF $": float(v["igtf_usd"]), "Tasa": float(v["tasa_bcv"]),
+        "Tipo": "Factura con IVA" if v.get("aplica_iva", True) else "Nota de entrega", "Estado": v["estado"],
     } for v in ventas])
     st.download_button("⬇️ Descargar listado (CSV)", tabla.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"ventas_{desde}_{hasta}.csv", mime="text/csv", on_click="ignore")
@@ -661,6 +691,8 @@ def render():
     cfg = U.obtener_config(supabase)
     fecha_tasa, tasa = U.tasa_vigente(supabase)
     ss._pos_cfg, ss._pos_tasa = cfg, tasa
+    if "pos_aplicar_iva" not in ss:
+        ss.pos_aplicar_iva = U.es_verdadero(cfg.get("iva_por_defecto", "true"))
 
     st.title("🛒 Punto de Venta")
     if not tasa:
