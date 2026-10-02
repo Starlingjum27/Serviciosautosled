@@ -82,6 +82,7 @@ def render():
         if c2.button("🔄 Reintentar", use_container_width=True, help="Consulta la API y registra la tasa de hoy"):
             with st.spinner("Consultando tasa oficial..."):
                 st.session_state.tasa_auto = auto_actualizar_tasa(forzar=True)
+            st.session_state.pop("_sb_cache", None)
             st.rerun()
 
     fecha_vig, tasa_vig = U.tasa_vigente(supabase)
@@ -136,6 +137,7 @@ def render():
                 st.error(f"Error al guardar: {U.mensaje_error(e)}")
             else:
                 st.session_state.pop("tasa_sugerida", None)
+                st.session_state.pop("_sb_cache", None)   # refresca la tasa del menú lateral
                 st.toast(f"Tasa del {fecha:%d/%m/%Y} guardada ✅")
                 st.rerun()
 
