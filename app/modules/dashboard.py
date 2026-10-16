@@ -191,7 +191,7 @@ def _hero(hoy, tasas):
     <div class="db-hero">
       <div>
         <div class="db-hello">{saludo}, {escape(nombre)} 👋</div>
-        <div class="db-brand">Servicios <span>Autos LED</span></div>
+        <div class="db-brand">{U.logo_html("oscuro", "height:70px; width:auto; max-width:100%; margin:.4rem 0 .5rem 0;") or "Servicios <span>Autos LED</span>"}</div>
         <div class="db-date">📅 {fecha_txt} · Panel de control del negocio</div>
       </div>
       {tasa_html}
