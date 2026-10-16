@@ -2,7 +2,10 @@
 Utilidades compartidas: fecha/hora de Venezuela, formatos, tasa BCV vigente,
 configuración y el cálculo fiscal del POS (espejo exacto de registrar_venta en SQL).
 """
+import base64
 import re
+from functools import lru_cache
+from pathlib import Path
 from datetime import datetime, date, time
 from decimal import Decimal, ROUND_HALF_UP, ROUND_CEILING
 from zoneinfo import ZoneInfo
@@ -22,6 +25,7 @@ CONFIG_DEFAULT = {
     "serie_documento": "NE",
     "descuento_max_pct": "10",
     "permitir_venta_sin_stock": "false",
+    "usar_categorias": "true",
     "tasa_dias_max": "4",
     "tasa_automatica": "true",
     "metodo_costo": "ULTIMO",
@@ -253,3 +257,24 @@ def margen_pct(precio, costo) -> Decimal | None:
     if precio <= 0:
         return None
     return ((precio - costo) / precio * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+
+
+# ---------------------------------------------------------------- logo de la empresa
+_ASSETS = Path(__file__).parent / "assets"
+
+
+@lru_cache(maxsize=4)
+def logo_b64(variante: str = "oscuro") -> str:
+    """Logo en base64. 'oscuro' = letras blancas (fondos oscuros); 'claro' = letras negras (impresión)."""
+    archivo = _ASSETS / f"logo_{variante}.png"
+    return base64.b64encode(archivo.read_bytes()).decode() if archivo.exists() else ""
+
+
+def logo_html(variante: str = "oscuro", estilo: str = "max-width:100%; height:auto;") -> str:
+    b64 = logo_b64(variante)
+    return f'<img src="data:image/png;base64,{b64}" alt="Servicios Autos LED" style="{estilo}">' if b64 else ""
+
+
+def ruta_icono() -> str | None:
+    archivo = _ASSETS / "icono.png"
+    return str(archivo) if archivo.exists() else None
