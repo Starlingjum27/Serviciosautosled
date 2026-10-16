@@ -3,7 +3,7 @@ import streamlit as st
 # 1. Configuración de la página (DEBE ser el primer comando de Streamlit)
 st.set_page_config(
     page_title="Servicios Autos Led - Sistema de Inventario",
-    page_icon="🚗",
+    page_icon="app/assets/icono.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -20,12 +20,22 @@ st.session_state.setdefault("usuario", None)
 
 
 def login():
-    st.title("🔐 Iniciar Sesión")
-    st.markdown("Sistema Profesional de Inventario y Ventas - Autopartes")
+    from app.utils import logo_html
+    _, centro, _ = st.columns([1, 1.4, 1])
+    with centro:
+        st.markdown(f"<div style='text-align:center; margin:2.5rem 0 1rem'>"
+                    f"{logo_html('oscuro', 'width:100%; max-width:380px; height:auto;')}</div>",
+                    unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; opacity:.7'>Sistema de inventario y ventas</p>",
+                    unsafe_allow_html=True)
+        login_form()
+
+
+def login_form():
     with st.form("login_form"):
         email = st.text_input("Correo Electrónico")
         password = st.text_input("Contraseña", type="password")
-        submit = st.form_submit_button("Ingresar")
+        submit = st.form_submit_button("Ingresar", type="primary", use_container_width=True)
     if submit:
         try:
             res = supabase.auth.sign_in_with_password({"email": email.strip(), "password": password})
