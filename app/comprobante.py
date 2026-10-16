@@ -1,7 +1,7 @@
 """Comprobante de venta en HTML (ticket 80 mm o carta), listo para imprimir o descargar."""
 from html import escape
 
-from app.utils import fmt_num, fmt_usd, fmt_bs, fecha_hora_local, D
+from app.utils import fmt_num, fmt_usd, fmt_bs, fecha_hora_local, D, logo_html
 
 
 def cargar_venta(supabase, venta_id: int):
@@ -84,6 +84,7 @@ def generar_html(venta: dict, detalle: list, pagos: list, cfg: dict, con_boton: 
   @media print {{ .noprint {{ display:none; }} body {{ padding:0; }} }}
 </style></head><body><div class="ticket">
   {anulada}
+  <div class="c">{logo_html("claro", "width:78%; max-width:260px; height:auto; margin-bottom:4px;")}</div>
   <h1>{e(cfg.get('empresa_nombre'))}</h1>
   <p class="c">RIF: {e(cfg.get('empresa_rif'))}</p>
   <p class="c">{e(cfg.get('empresa_direccion'))}</p>
@@ -167,7 +168,7 @@ def generar_html_compra(compra: dict, detalle: list, pagos: list, cfg: dict, con
 </style></head><body><div class="doc">
   {anulada}
   <div class="cab">
-    <div><h1>{e(cfg.get('empresa_nombre'))}</h1>RIF: {e(cfg.get('empresa_rif'))}<br>{e(cfg.get('empresa_direccion'))}</div>
+    <div>{logo_html("claro", "height:56px; width:auto; margin-bottom:6px;")}<h1>{e(cfg.get('empresa_nombre'))}</h1>RIF: {e(cfg.get('empresa_rif'))}<br>{e(cfg.get('empresa_direccion'))}</div>
     <div class="r"><h1>COMPRA {e(compra['numero'])}</h1>{fecha_hora_local(compra['fecha'])}<br>
       Registrada por: {e(compra.get('usuario_email'))}</div>
   </div>
