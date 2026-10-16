@@ -100,6 +100,13 @@ def _datos_cache():
 
 
 def _marca():
+    logo = U.logo_html("oscuro", "width:100%; max-width:230px; height:auto; display:block;")
+    if logo:
+        st.markdown(f"""
+<div class="sb-brand" style="flex-direction:column; align-items:flex-start; gap:.35rem;">
+  {logo}<div class="sb-tag">Sistema de gestión</div>
+</div>""", unsafe_allow_html=True)
+        return
     st.markdown("""
 <div class="sb-brand">
   <div class="sb-logo">LED</div>
