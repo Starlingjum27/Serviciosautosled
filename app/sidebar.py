@@ -32,7 +32,7 @@ CSS = """
 .sb-brand { display:flex; align-items:center; gap:.75rem; padding:.2rem .1rem 1rem .1rem; }
 .sb-logo { width:46px; height:46px; border-radius:14px; display:flex; align-items:center; justify-content:center;
   font-weight:900; font-size:.8rem; letter-spacing:.03em; color:#0b1224 !important;
-  background: linear-gradient(135deg, #00d4ff, #a78bfa); box-shadow: 0 0 22px rgba(0,212,255,.45); }
+  background: linear-gradient(135deg, #60c5e3, #a78bfa); box-shadow: 0 0 22px rgba(96,197,227,.45); }
 .sb-name { font-weight:800; font-size:1.05rem; line-height:1.1; color:#ffffff !important; }
 .sb-tag { font-size:.72rem; color:#94a3b8 !important; margin-top:.15rem; }
 
@@ -60,8 +60,8 @@ CSS = """
 """ + _BTN.format(k="tertiary").replace(", ", ":hover, ") + """:hover {
   background:rgba(255,255,255,.07); transform:translateX(3px); }
 """ + _BTN.format(k="primary") + """ {
-  background: linear-gradient(90deg, rgba(0,212,255,.24), rgba(124,58,237,.24));
-  border:1px solid rgba(0,212,255,.38); box-shadow: inset 3px 0 0 #00d4ff, 0 6px 20px rgba(0,212,255,.14);
+  background: linear-gradient(90deg, rgba(96,197,227,.24), rgba(124,58,237,.24));
+  border:1px solid rgba(96,197,227,.38); box-shadow: inset 3px 0 0 #60c5e3, 0 6px 20px rgba(96,197,227,.14);
 }
 """ + _BTN.format(k="primary") + """ p { font-weight:700; color:#ffffff !important; }
 
@@ -70,7 +70,7 @@ CSS = """
   background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09); margin-top:1.1rem; }
 .sb-avatar { width:40px; height:40px; border-radius:50%; flex-shrink:0; display:flex; align-items:center;
   justify-content:center; font-weight:800; color:#ffffff !important;
-  background: linear-gradient(135deg, #7c3aed, #00d4ff); }
+  background: linear-gradient(135deg, #7c3aed, #60c5e3); }
 .sb-uname { font-weight:700; font-size:.85rem; color:#ffffff !important; overflow:hidden; text-overflow:ellipsis;
   white-space:nowrap; max-width:175px; }
 .sb-role { font-size:.7rem; color:#94a3b8 !important; }
