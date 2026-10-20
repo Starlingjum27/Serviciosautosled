@@ -15,20 +15,20 @@ from app import utils as U
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
          "septiembre", "octubre", "noviembre", "diciembre"]
-PALETA = ["#00d4ff", "#7c3aed", "#22c55e", "#f59e0b", "#ef4444", "#ec4899", "#14b8a6"]
+PALETA = ["#60c5e3", "#7c3aed", "#22c55e", "#f59e0b", "#ef4444", "#ec4899", "#14b8a6"]
 
 CSS = """
 <style>
 [data-testid="stVerticalBlockBorderWrapper"] {border-radius:18px !important;}
 .db-hero {display:flex; justify-content:space-between; align-items:stretch; gap:1.2rem; flex-wrap:wrap;
   padding:1.6rem 1.8rem; border-radius:22px; color:#f8fafc; margin-bottom:1rem;
-  background:radial-gradient(circle at 0% 0%, rgba(0,212,255,.28), transparent 45%),
+  background:radial-gradient(circle at 0% 0%, rgba(96,197,227,.28), transparent 45%),
              radial-gradient(circle at 100% 100%, rgba(124,58,237,.35), transparent 50%),
              linear-gradient(135deg,#0b1224 0%,#1e1b4b 100%);
   border:1px solid rgba(255,255,255,.08); box-shadow:0 14px 34px rgba(0,0,0,.28);}
 .db-hello {font-size:.95rem; opacity:.8;}
 .db-brand {font-size:2rem; font-weight:800; line-height:1.15; margin:.15rem 0 .35rem 0; letter-spacing:-.02em;}
-.db-brand span {background:linear-gradient(90deg,#00d4ff,#a78bfa); -webkit-background-clip:text;
+.db-brand span {background:linear-gradient(90deg,#60c5e3,#a78bfa); -webkit-background-clip:text;
   background-clip:text; color:transparent;}
 .db-date {font-size:.9rem; opacity:.75;}
 .db-tasa {min-width:260px; padding:1rem 1.2rem; border-radius:16px; background:rgba(255,255,255,.07);
@@ -243,7 +243,7 @@ def _kpis(hoy, ventas, detalle, productos, compras, tasa):
     tarjetas = [
         _kpi("💵", "Ventas de hoy", U.fmt_usd(usd_hoy), f"{U.fmt_bs(bs_hoy)} · {len(v_hoy)} venta(s)",
              _variacion(usd_hoy, usd_ayer) + "<span style='font-size:.7rem;opacity:.6'> vs ayer</span>",
-             "linear-gradient(90deg,#00d4ff,#0ea5e9)", "rgba(0,212,255,.15)"),
+             "linear-gradient(90deg,#60c5e3,#0ea5e9)", "rgba(96,197,227,.15)"),
         _kpi("📈", f"Ventas de {MESES[hoy.month - 1]}", U.fmt_usd(usd_mes), f"{U.fmt_bs(bs_mes)} · {len(v_mes)} venta(s)",
              "", "linear-gradient(90deg,#7c3aed,#a78bfa)", "rgba(124,58,237,.16)"),
         _kpi("💎", "Utilidad bruta del mes", U.fmt_usd(utilidad), f"Ventas netas {U.fmt_usd(neto)} − costo {U.fmt_usd(costo)}",
@@ -288,10 +288,10 @@ def _grafico_ventas(hoy, ventas):
                  alt.Tooltip("usd:Q", title="Vendido $", format=",.2f"),
                  alt.Tooltip("ventas:Q", title="N° ventas")])
     area = base.mark_area(
-        interpolate="monotone", line={"color": "#00d4ff", "strokeWidth": 2.5},
+        interpolate="monotone", line={"color": "#60c5e3", "strokeWidth": 2.5},
         color=alt.Gradient(gradient="linear", x1=1, x2=1, y1=1, y2=0,
-                           stops=[alt.GradientStop(color="rgba(0,212,255,0.02)", offset=0),
-                                  alt.GradientStop(color="rgba(0,212,255,0.45)", offset=1)]),
+                           stops=[alt.GradientStop(color="rgba(96,197,227,0.02)", offset=0),
+                                  alt.GradientStop(color="rgba(96,197,227,0.45)", offset=1)]),
     ).encode(y=alt.Y("usd:Q", title=None, axis=alt.Axis(format="$,.0f", gridOpacity=0.12, domain=False, ticks=False)))
     puntos = base.mark_circle(size=55, color="#7dd3fc").encode(y="usd:Q").transform_filter("datum.usd > 0")
     st.altair_chart((area + puntos).properties(height=270).configure_view(strokeWidth=0),
