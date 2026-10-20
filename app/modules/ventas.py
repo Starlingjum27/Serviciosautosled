@@ -212,9 +212,15 @@ def dialog_agregar(prod: dict):
                                max_value=None if _permitir_sin_stock() else disponible)
     descuento = 0.0
     desc_max = float(cfg.get("descuento_max_pct", 0) or 0)
-    if desc_max > 0:
-        with st.expander("🏷️ Aplicar descuento (opcional)"):
-            descuento = st.slider("Descuento %", 0.0, desc_max, 0.0, 1.0)
+    if desc_max > 0 and precio > 0:
+        with st.expander("🏷️ Cobrar otro precio (cliente frecuente)"):
+            minimo = float(U.r2(precio * (1 - U.D(desc_max) / 100)))
+            final = st.number_input("Precio que le cobras por unidad ($)", min_value=minimo, max_value=float(precio),
+                                    value=float(precio), step=0.05, format="%.2f",
+                                    help=f"Descuento máximo permitido: {U.fmt_num(desc_max, 0)}% (se cambia en Configuración).")
+            if final < float(precio):
+                descuento = float((1 - U.D(final) / precio) * 100)
+                st.caption(f"Descuento de {U.fmt_usd(precio - U.D(final))} por unidad ({U.fmt_num(descuento, 2)}%).")
 
     sub = U.r2(precio * cantidad * (1 - U.D(descuento) / 100))
     st.info(f"**Subtotal:** {U.fmt_usd(sub)}  ·  {U.fmt_bs(sub * tasa)}  (sin IVA)")
@@ -502,10 +508,12 @@ def _catalogo(tasa):
     st.text_input("Buscar producto", key="pos_busqueda", on_change=_cb_escaner, label_visibility="collapsed",
                   placeholder="🔍 Escribe nombre, SKU o marca… o escanea el código de barras")
 
-    cats = _categorias()
-    nombres = ["Todas"] + [c["nombre"] for c in cats]
-    cat_sel = st.pills("Categoría", nombres, default="Todas", key="pos_cat", label_visibility="collapsed")
-    cat_id = next((c["id"] for c in cats if c["nombre"] == cat_sel), None)
+    cat_id = None
+    if U.es_verdadero(st.session_state._pos_cfg.get("usar_categorias", "true")):
+        cats = _categorias()
+        nombres = ["Todas"] + [c["nombre"] for c in cats]
+        cat_sel = st.pills("Categoría", nombres, default="Todas", key="pos_cat", label_visibility="collapsed")
+        cat_id = next((c["id"] for c in cats if c["nombre"] == cat_sel), None)
 
     texto = (st.session_state.get("pos_busqueda") or "").strip()
     try:
