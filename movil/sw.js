@@ -1,6 +1,6 @@
 // Service worker: permite instalar la app y abrirla rápido.
 // Los datos (ventas, productos, tasa) SIEMPRE se piden en vivo a Supabase; nunca se guardan en caché.
-const CACHE = "autosled-v3";
+const CACHE = "autosled-v4";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "manifest.webmanifest",
                "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "icons/logo.png"];
 

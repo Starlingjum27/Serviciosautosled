@@ -145,7 +145,8 @@ def _cargar():
     detalle = _en_lotes("detalle_ventas", "venta_id, sku, descripcion, cantidad, subtotal_usd, costo_unitario_usd",
                         "venta_id", mes_ids)
     pagos = _en_lotes("pagos_venta", "venta_id, metodo, moneda, monto", "venta_id", mes_ids)
-    productos = _consultar("productos", "sku, nombre, stock_actual, stock_minimo, costo_usd, precio_usd, activo")
+    productos = _consultar("productos", "sku, nombre, stock_actual, stock_minimo, costo_usd, precio_usd, activo, tipo")
+    productos = [p for p in productos if (p.get("tipo") or "PRODUCTO") != "SERVICIO"]  # los servicios no son inventario
     ini_mes, _ = U.rango_dia_iso(hoy.replace(day=1), hoy)
     compras = _consultar("compras", "total_usd, fecha", ini_mes, {"estado": "REGISTRADA"})
     tasas = []

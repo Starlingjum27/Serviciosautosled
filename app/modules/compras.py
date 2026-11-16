@@ -67,7 +67,8 @@ def _reiniciar():
 
 def _buscar(texto: str, categoria_id):
     palabras = [p for p in texto.replace(",", " ").replace("(", " ").replace(")", " ").split() if p]
-    q = supabase.table("productos").select(COLS, count="exact").eq("activo", True)
+    # Los servicios no se compran (no llevan inventario)
+    q = supabase.table("productos").select(COLS, count="exact").eq("activo", True).neq("tipo", "SERVICIO")
     if categoria_id:
         q = q.eq("categoria_id", categoria_id)
     if palabras:

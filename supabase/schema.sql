@@ -1,4 +1,4 @@
--- Esquema de Servicios Autos LED · exportado el 15/11/2026 23:04 (hora de Venezuela)
+-- Esquema de Servicios Autos LED · exportado el 15/11/2026 23:43 (hora de Venezuela)
 -- Generado con supabase/exportar_esquema.sql. No contiene datos.
 
 create sequence if not exists public.seq_compra as bigint increment by 1 minvalue 1 maxvalue 9223372036854775807 start with 1;
@@ -315,7 +315,8 @@ create table if not exists public.detalle_ventas (
   exento_iva boolean default false not null,
   costo_unitario_usd numeric(14,4) default 0 not null,
   tasa_bcv numeric(18,4) not null,
-  subtotal_bs numeric(18,2) not null
+  subtotal_bs numeric(18,2) not null,
+  es_servicio boolean default false not null
 );
 
 create table if not exists public.movimientos_inventario (
@@ -387,7 +388,8 @@ create table if not exists public.productos (
   codigo_barras text,
   subcategoria text,
   exento_iva boolean default false not null,
-  updated_at timestamp with time zone default now()
+  updated_at timestamp with time zone default now(),
+  tipo text default 'PRODUCTO'::text not null
 );
 
 create table if not exists public.proveedores (
@@ -512,7 +514,11 @@ alter table public.pagos_venta add constraint pagos_venta_pkey PRIMARY KEY (id);
 
 alter table public.productos add constraint productos_pkey PRIMARY KEY (id);
 
+alter table public.productos add constraint productos_servicio_sin_stock CHECK (((tipo = 'PRODUCTO'::text) OR (COALESCE(stock_actual, 0) = 0)));
+
 alter table public.productos add constraint productos_sku_key UNIQUE (sku);
+
+alter table public.productos add constraint productos_tipo_check CHECK ((tipo = ANY (ARRAY['PRODUCTO'::text, 'SERVICIO'::text])));
 
 alter table public.proveedores add constraint proveedores_pkey PRIMARY KEY (id);
 
@@ -697,6 +703,9 @@ begin
   v_nc := 'NC-' || lpad(nextval('public.seq_nota_credito')::text, 8, '0');
 
   for v_det in select * from public.detalle_ventas where venta_id = p_venta_id order by producto_id loop
+    if v_det.es_servicio then
+      continue;  -- los servicios no devuelven inventario
+    end if;
     select coalesce(stock_actual, 0) into v_stock from public.productos where id = v_det.producto_id for update;
 
     update public.productos
@@ -1001,6 +1010,8 @@ declare
   v_numero     text;
   v_cant       numeric;
   v_existente  record;
+  v_servicio   boolean;
+  v_precio     numeric;
 begin
   if v_uid is null then
     raise exception 'Sesión no válida. Cierra sesión e ingresa de nuevo.';
@@ -1061,13 +1072,17 @@ begin
   perform set_config('app.origen_stock', 'rpc', true);
 
   -- 1ª pasada: bloquear productos (en orden de id para evitar deadlocks), validar y calcular
+  --    Los SERVICIOS no llevan stock y pueden cobrarse a precio libre ('precio_usd') con una 'nota'.
   for v_item in
     select (e ->> 'producto_id')::bigint                     as producto_id,
+           case when pr.tipo = 'SERVICIO' then nullif(e ->> 'precio_usd', '')::numeric end         as precio_libre,
+           case when pr.tipo = 'SERVICIO' then nullif(trim(coalesce(e ->> 'nota', '')), '') end as nota,
            sum((e ->> 'cantidad')::numeric)                  as cantidad,
            max(coalesce((e ->> 'descuento_pct')::numeric, 0)) as descuento_pct
     from jsonb_array_elements(p_items) e
-    group by 1
-    order by 1
+    left join public.productos pr on pr.id = (e ->> 'producto_id')::bigint
+    group by 1, 2, 3
+    order by 1, 2, 3
   loop
     if v_item.cantidad is null or v_item.cantidad <= 0 or v_item.cantidad <> trunc(v_item.cantidad) then
       raise exception 'Cantidad inválida para el producto %.', v_item.producto_id;
@@ -1083,15 +1098,17 @@ begin
     if not coalesce(v_prod.activo, true) then
       raise exception 'El producto % está inactivo.', v_prod.sku;
     end if;
-    if coalesce(v_prod.precio_usd, 0) <= 0 then
+    v_servicio := coalesce(v_prod.tipo, 'PRODUCTO') = 'SERVICIO';
+    v_precio   := round(coalesce(v_item.precio_libre, v_prod.precio_usd)::numeric, 2);
+    if coalesce(v_precio, 0) <= 0 then
       raise exception 'El producto % no tiene precio de venta.', v_prod.sku;
     end if;
-    if not v_sin_stock and coalesce(v_prod.stock_actual, 0) < v_item.cantidad then
+    if not v_servicio and not v_sin_stock and coalesce(v_prod.stock_actual, 0) < v_item.cantidad then
       raise exception 'Stock insuficiente para % (%): disponible %, solicitado %.',
         v_prod.sku, v_prod.nombre, coalesce(v_prod.stock_actual, 0), v_item.cantidad;
     end if;
 
-    v_sub := round(v_prod.precio_usd::numeric * v_item.cantidad * (1 - v_item.descuento_pct / 100), 2);
+    v_sub := round(v_precio * v_item.cantidad * (1 - v_item.descuento_pct / 100), 2);
     if coalesce(v_prod.exento_iva, false) then
       v_exento_usd := v_exento_usd + v_sub;
     else
@@ -1099,8 +1116,9 @@ begin
     end if;
 
     v_lineas := v_lineas || jsonb_build_object(
-      'producto_id', v_prod.id, 'sku', v_prod.sku, 'descripcion', v_prod.nombre,
-      'cantidad', v_item.cantidad, 'precio', round(v_prod.precio_usd::numeric, 2),
+      'producto_id', v_prod.id, 'sku', v_prod.sku,
+      'descripcion', v_prod.nombre || coalesce(' · ' || v_item.nota, ''),
+      'cantidad', v_item.cantidad, 'precio', v_precio, 'servicio', v_servicio,
       'descuento', v_item.descuento_pct, 'subtotal', v_sub,
       'exento', coalesce(v_prod.exento_iva, false),
       'costo', coalesce(v_prod.costo_usd, 0), 'stock', coalesce(v_prod.stock_actual, 0));
@@ -1168,12 +1186,17 @@ begin
 
     insert into public.detalle_ventas (
       venta_id, producto_id, sku, descripcion, cantidad, precio_unitario_usd, descuento_pct,
-      subtotal_usd, exento_iva, costo_unitario_usd, tasa_bcv, subtotal_bs)
+      subtotal_usd, exento_iva, costo_unitario_usd, tasa_bcv, subtotal_bs, es_servicio)
     values (
       v_venta_id, (v_linea ->> 'producto_id')::bigint, v_linea ->> 'sku', v_linea ->> 'descripcion',
       v_cant::int, (v_linea ->> 'precio')::numeric, (v_linea ->> 'descuento')::numeric,
       (v_linea ->> 'subtotal')::numeric, (v_linea ->> 'exento')::boolean,
-      (v_linea ->> 'costo')::numeric, v_tasa, round((v_linea ->> 'subtotal')::numeric * v_tasa, 2));
+      (v_linea ->> 'costo')::numeric, v_tasa, round((v_linea ->> 'subtotal')::numeric * v_tasa, 2),
+      (v_linea ->> 'servicio')::boolean);
+
+    if (v_linea ->> 'servicio')::boolean then
+      continue;  -- los servicios no mueven inventario ni kardex
+    end if;
 
     update public.productos
        set stock_actual = stock_actual - v_cant, updated_at = now()
@@ -1294,6 +1317,19 @@ begin
 end $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.trg_productos_servicio_sin_stock()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  if new.tipo = 'SERVICIO' and coalesce(new.stock_actual, 0) <> 0 then
+    raise exception '% es un servicio: no lleva inventario (no se compra ni se le ajusta stock).', new.sku;
+  end if;
+  return new;
+end $function$
+;
+
 CREATE OR REPLACE FUNCTION public.trg_tasas_auditoria()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1312,6 +1348,8 @@ end $function$
 CREATE TRIGGER productos_auditoria AFTER DELETE OR UPDATE OF precio_usd, costo_usd ON public.productos FOR EACH ROW EXECUTE FUNCTION trg_productos_auditoria();
 
 CREATE TRIGGER productos_kardex AFTER INSERT OR UPDATE OF stock_actual ON public.productos FOR EACH ROW EXECUTE FUNCTION trg_productos_kardex();
+
+CREATE TRIGGER productos_servicio_sin_stock BEFORE INSERT OR UPDATE OF stock_actual, tipo ON public.productos FOR EACH ROW EXECUTE FUNCTION trg_productos_servicio_sin_stock();
 
 CREATE TRIGGER tasas_auditoria AFTER INSERT OR UPDATE ON public.tasas_bcv FOR EACH ROW EXECUTE FUNCTION trg_tasas_auditoria();
 

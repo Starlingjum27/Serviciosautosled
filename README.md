@@ -3,6 +3,9 @@
 Sistema para un local de autopartes en Venezuela: punto de venta, compras, inventario (kardex),
 proveedores y tasa BCV. Emite documentos **no fiscales** (notas de entrega / comprobantes internos).
 
+Vende **productos** (llevan inventario) y **servicios** (mano de obra, instalaciones: no llevan
+inventario, pueden cobrarse a precio libre y con una nota del trabajo que sale en el comprobante).
+
 Todo el sistema está en este repositorio:
 
 | Parte | Carpeta | Dónde está publicada | Tecnología |
