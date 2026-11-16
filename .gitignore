@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Servicios Autos LED ---
+# Claves de Supabase de la app móvil (usa movil/config.example.js como plantilla)
+movil/config.js
+# Respaldos locales de datos
+respaldos/
