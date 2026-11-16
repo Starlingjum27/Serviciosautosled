@@ -161,7 +161,7 @@
     let todos = [], desde = 0;
     for (;;) {
       const { data, error } = await sb.from("productos")
-        .select("id, sku, nombre, marca, precio_usd, costo_usd, stock_actual, stock_minimo, exento_iva, activo")
+        .select("id, sku, nombre, marca, precio_usd, costo_usd, stock_actual, stock_minimo, exento_iva, activo, tipo")
         .eq("activo", true).order("nombre").range(desde, desde + 999);
       if (error) throw error;
       todos = todos.concat(data || []);
@@ -171,6 +171,7 @@
     S.productos = todos.map((p) => ({
       id: p.id, sku: p.sku, nombre: p.nombre, marca: p.marca || "", precio: Number(p.precio_usd) || 0, costo: Number(p.costo_usd) || 0,
       stock: Number(p.stock_actual) || 0, minimo: Number(p.stock_minimo) || 0, exento: !!p.exento_iva,
+      servicio: p.tipo === "SERVICIO",
       _b: norm(`${p.sku} ${p.nombre} ${p.marca || ""}`),
     }));
   }
@@ -181,7 +182,10 @@
   }
   const prod = (id) => S.productos.find((p) => p.id === id);
   const enVenta = (id) => (S.cart.find((i) => i.id === id) || {}).cantidad || 0;
+  // Los servicios (mano de obra) no llevan inventario: no cuentan para stock, agotados ni reposición
+  const inventario = () => S.productos.filter((p) => !p.servicio);
   function chipStock(p) {
+    if (p.servicio) return `<span class="stock ok">Servicio</span>`;
     if (p.stock <= 0) return `<span class="stock cero">Agotado</span>`;
     if (p.stock <= p.minimo) return `<span class="stock bajo">Quedan ${p.stock}</span>`;
     return `<span class="stock ok">${p.stock} disp.</span>`;
@@ -383,10 +387,10 @@
     const costo = d.detalle.reduce((a, x) => a + Number(x.cantidad) * Number(x.costo_unitario_usd || 0), 0);
     const util = neto - costo, margen = neto > 0 ? util / neto * 100 : 0;
     const usdMes = suma(vMes, "total_usd");
-    const valCosto = S.productos.reduce((a, p) => a + Math.max(p.stock, 0) * p.costo, 0);
-    const valVenta = S.productos.reduce((a, p) => a + Math.max(p.stock, 0) * p.precio, 0);
-    const agot = S.productos.filter((p) => p.stock <= 0).length;
-    const bajos = S.productos.filter((p) => p.stock > 0 && p.stock <= p.minimo).length;
+    const valCosto = inventario().reduce((a, p) => a + Math.max(p.stock, 0) * p.costo, 0);
+    const valVenta = inventario().reduce((a, p) => a + Math.max(p.stock, 0) * p.precio, 0);
+    const agot = inventario().filter((p) => p.stock <= 0).length;
+    const bajos = inventario().filter((p) => p.stock > 0 && p.stock <= p.minimo).length;
     const mes = MESES[Number(d.h.slice(5, 7)) - 1];
     const chipStock = agot ? `<span class="chip ch-down">${agot} agotados</span>` : bajos ? `<span class="chip ch-warn">${bajos} bajos</span>` : `<span class="chip ch-up">✓ todo ok</span>`;
     const kpis = [
@@ -416,7 +420,7 @@
     const top = Object.entries(prods).sort((a, b) => b[1].usd - a[1].usd).slice(0, 5)
       .map(([n, v]) => ({ nombre: n, valor: v.usd, texto: usd(v.usd), sub: `${v.und} und. vendidas, utilidad ${usd(v.util)}` }));
 
-    const reponer = S.productos.filter((p) => p.stock <= p.minimo).sort((a, b) => a.stock - b.stock).slice(0, 6);
+    const reponer = inventario().filter((p) => p.stock <= p.minimo).sort((a, b) => a.stock - b.stock).slice(0, 6);
     const listaReponer = reponer.length ? reponer.map((p) => `<button class="fila-dash" data-a="detalle" data-v="${p.id}">
         <div class="fd-cuerpo"><div class="fd-n">${esc(p.nombre)}</div><div class="fd-s">${esc(p.sku)}</div>
           <div class="mini-pista"><div style="width:${Math.max(0, Math.min(p.stock / (p.minimo || 1), 1)) * 100}%;background:${p.stock <= 0 ? "var(--freno)" : "var(--ambar)"}"></div></div></div>
@@ -474,10 +478,10 @@
   function iniciales(nombre) {
     return String(nombre || "?").replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ0-9 ]/g, " ").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
   }
-  const estadoStock = (p) => (p.stock <= 0 ? "cero" : p.stock <= p.minimo ? "bajo" : "ok");
+  const estadoStock = (p) => (p.servicio ? "ok" : p.stock <= 0 ? "cero" : p.stock <= p.minimo ? "bajo" : "ok");
   function pantallaProductos() {
-    const agot = S.productos.filter((p) => p.stock <= 0).length;
-    const repo = S.productos.filter((p) => p.stock <= p.minimo).length;
+    const agot = inventario().filter((p) => p.stock <= 0).length;
+    const repo = inventario().filter((p) => p.stock <= p.minimo).length;
     const filtros = [["todos", "Todos", S.productos.length], ["reponer", "Por reponer", repo], ["agotados", "Agotados", agot]];
     $("#main").innerHTML = `
       <div class="enc">
@@ -491,8 +495,8 @@
   }
   function tarjetaProducto(p) {
     const est = estadoStock(p);
-    const pct = Math.max(0, Math.min(p.stock / (Math.max(p.minimo, 1) * 3), 1)) * 100;
-    const txt = est === "cero" ? "Agotado" : est === "bajo" ? `Quedan ${p.stock}, mínimo ${p.minimo}` : `${p.stock} en stock`;
+    const pct = p.servicio ? 100 : Math.max(0, Math.min(p.stock / (Math.max(p.minimo, 1) * 3), 1)) * 100;
+    const txt = p.servicio ? "Servicio, sin inventario" : est === "cero" ? "Agotado" : est === "bajo" ? `Quedan ${p.stock}, mínimo ${p.minimo}` : `${p.stock} en stock`;
     return `<button class="pcard" data-a="detalle" data-v="${p.id}">
       <div class="pav ${est}">${esc(iniciales(p.nombre))}</div>
       <div class="pcuerpo">
@@ -508,8 +512,8 @@
     if (!el) return;
     let res = buscar(S.q, S.tab === "productos" ? 400 : 40);
     if (S.tab === "productos") {
-      if (S.filtroProd === "reponer") res = res.filter((p) => p.stock <= p.minimo);
-      if (S.filtroProd === "agotados") res = res.filter((p) => p.stock <= 0);
+      if (S.filtroProd === "reponer") res = res.filter((p) => !p.servicio && p.stock <= p.minimo);
+      if (S.filtroProd === "agotados") res = res.filter((p) => !p.servicio && p.stock <= 0);
       res = res.slice(0, 60);
     }
     if (!res.length) {
@@ -525,7 +529,7 @@
     }
     el.innerHTML = res.map((p) => {
       const c = enVenta(p.id);
-      const bloqueado = p.stock <= 0 && !permiteSinStock();
+      const bloqueado = !p.servicio && p.stock <= 0 && !permiteSinStock();
       return `<div class="item ${c ? "en-venta" : ""}">
         <div class="cuerpo"><div class="nombre">${esc(p.nombre)}</div><div class="meta">${esc(p.sku)} ${chipStock(p)}</div></div>
         <div class="precio"><span class="num">${usd(p.precio)}</span><small>${bs(r2(p.precio * S.tasa))}</small></div>
@@ -537,12 +541,13 @@
     if (!p) return false;
     const item = S.cart.find((i) => i.id === id);
     const actual = item ? item.cantidad : 0;
-    if (actual + 1 > p.stock && !permiteSinStock()) {
+    if (p.precio <= 0) { toast(`${p.nombre} no tiene precio fijo: cóbralo desde el sistema en la PC`, true); return false; }
+    if (!p.servicio && actual + 1 > p.stock && !permiteSinStock()) {
       toast(p.stock <= 0 ? `${p.nombre} está agotado` : `Solo hay ${p.stock} disponible${p.stock === 1 ? "" : "s"}`, true);
       return false;
     }
     if (item) item.cantidad += 1;
-    else S.cart.push({ id: p.id, sku: p.sku, nombre: p.nombre, precio: p.precio, precioFinal: null, exento: p.exento, stock: p.stock, cantidad: 1 });
+    else S.cart.push({ id: p.id, sku: p.sku, nombre: p.nombre, precio: p.precio, precioFinal: null, exento: p.exento, stock: p.stock, servicio: p.servicio, cantidad: 1 });
     if (navigator.vibrate) navigator.vibrate(12);
     if (!silencioso) toast(`Agregado: ${p.nombre}`);
     renderLista();
@@ -827,7 +832,7 @@
     const p = prod(S.prodSel);
     if (!p) { cerrarHoja(); return null; }
     const est = estadoStock(p);
-    const bloqueado = p.stock <= 0 && !permiteSinStock();
+    const bloqueado = !p.servicio && p.stock <= 0 && !permiteSinStock();
     const ivaPct = Number(S.cfg.iva_porcentaje || 16);
     const colorStock = est === "cero" ? "var(--freno)" : est === "bajo" ? "var(--ambar)" : "var(--verde)";
     const margen = p.precio > 0 && p.costo > 0 ? (p.precio - p.costo) / p.precio * 100 : null;
@@ -846,9 +851,10 @@
           ${p.exento ? "" : `<div class="fp-iva">Con IVA ${ivaPct}%: <b>${usd(r2(p.precio * (1 + ivaPct / 100)))}</b>, ${bs(r2(r2(p.precio * S.tasa) * (1 + ivaPct / 100)))}</div>`}
         </div>
         <div class="cifras">
+          ${p.servicio ? `<div class="cifra"><div class="et">Tipo</div><div class="num">🛠️</div><small>servicio, sin inventario</small></div>` : `
           <div class="cifra"><div class="et">En stock</div><div class="num" style="color:${colorStock}">${p.stock}</div><small>${est === "cero" ? "agotado" : est === "bajo" ? "toca reponer" : "unidades"}</small></div>
           <div class="cifra"><div class="et">Stock mínimo</div><div class="num">${p.minimo}</div><small>alerta de reposición</small></div>
-          <div class="cifra"><div class="et">Valor en inventario</div><div class="num">${usd(Math.max(p.stock, 0) * p.precio)}</div><small>a precio de venta</small></div>
+          <div class="cifra"><div class="et">Valor en inventario</div><div class="num">${usd(Math.max(p.stock, 0) * p.precio)}</div><small>a precio de venta</small></div>`}
           ${admin ? `<div class="cifra"><div class="et">Costo</div><div class="num">${usd(p.costo)}</div><small>${margen != null ? `margen ${f2.format(margen)}%` : "sin costo registrado"}</small></div>` : ""}
         </div>`,
       pie: `<button class="btn btn-haz btn-ancho" data-a="agregarDetalle" ${bloqueado ? "disabled" : ""}>${bloqueado ? "Agotado" : "Agregar a la venta"}</button>
@@ -1116,7 +1122,7 @@
     cerrar: () => cerrarHoja(),
     menos: (v) => { const i = S.cart.find((x) => x.id === Number(v)); if (i && i.cantidad > 1) i.cantidad -= 1; renderHoja(); },
     mas1: (v) => { const i = S.cart.find((x) => x.id === Number(v)); if (!i) return;
-      if (i.cantidad + 1 > i.stock && !permiteSinStock()) return toast(`Solo hay ${i.stock} disponibles`, true);
+      if (!i.servicio && i.cantidad + 1 > i.stock && !permiteSinStock()) return toast(`Solo hay ${i.stock} disponibles`, true);
       i.cantidad += 1; renderHoja(); },
     quitar: (v) => { S.cart = S.cart.filter((x) => x.id !== Number(v)); S.pagos = []; renderHoja(); renderTotalbar(); },
     iva: () => { S.aplicaIva = !S.aplicaIva; S.pagos = []; renderHoja(); renderTotalbar(); },
@@ -1168,7 +1174,7 @@
       const L = [`*${S.cfg.empresa_nombre || "SERVICIOS AUTOS LED"}*`, "", p.nombre, `Código: ${p.sku}`,
         `Precio: *${usd(p.precio)}* (${bs(r2(p.precio * S.tasa))} a tasa BCV ${f4.format(S.tasa)})`];
       if (!p.exento) L.push(`Con IVA ${ivaPct}%: ${usd(r2(p.precio * (1 + ivaPct / 100)))}`);
-      L.push(p.stock > 0 ? "Disponible ✅" : "Agotado por el momento");
+      L.push(p.servicio ? "Servicio disponible ✅" : p.stock > 0 ? "Disponible ✅" : "Agotado por el momento");
       abrirWhatsApp(L.join("\n"), "");
     },
     nuevoProd: (v) => {

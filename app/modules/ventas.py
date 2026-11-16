@@ -29,7 +29,7 @@ METODOS = {
     "💲 Efectivo USD": ("Efectivo USD", "USD", False),
     "🇺🇸 Zelle": ("Zelle", "USD", True),
 }
-COLS = "id, sku, nombre, marca, precio_usd, stock_actual, exento_iva, activo, categoria_id"
+COLS = "id, sku, nombre, marca, precio_usd, stock_actual, exento_iva, activo, categoria_id, tipo"
 
 CSS = """
 <style>
@@ -74,6 +74,15 @@ def _permitir_sin_stock() -> bool:
     return U.es_verdadero(st.session_state._pos_cfg.get("permitir_venta_sin_stock"))
 
 
+def _es_servicio(prod: dict) -> bool:
+    return str(prod.get("tipo") or "PRODUCTO").upper() == "SERVICIO"
+
+
+def _sin_limite(prod: dict) -> bool:
+    """Los servicios no llevan stock; los productos, según la configuración."""
+    return _es_servicio(prod) or _permitir_sin_stock()
+
+
 def _cfg_venta() -> dict:
     """Configuración de ESTA venta: si no se aplica IVA, la alícuota es 0."""
     cfg = dict(st.session_state._pos_cfg)
@@ -114,25 +123,33 @@ def _subtotal(it):
 # =====================================================================
 # CARRITO
 # =====================================================================
-def _agregar(prod: dict, cantidad: int, descuento: float = 0.0) -> bool:
+def _agregar(prod: dict, cantidad: int, descuento: float = 0.0, precio: float | None = None,
+             nota: str = "") -> bool:
+    """Productos: precio de lista y control de stock. Servicios: sin stock, precio libre y nota opcional."""
     ss = st.session_state
+    servicio = _es_servicio(prod)
     stock = int(prod.get("stock_actual") or 0)
+    precio_final = round(float(precio if (servicio and precio) else (prod["precio_usd"] or 0)), 2)
+    nota = (nota or "").strip() if servicio else ""
+    if precio_final <= 0:
+        _toast(f"{prod['nombre']} no tiene precio fijo: agrégalo con ➕ y escribe cuánto cobras", "⚠️")
+        return False
     for it in ss.pos_carrito:
-        if it["producto_id"] == prod["id"]:
+        if it["producto_id"] == prod["id"] and it["precio_usd"] == precio_final and it.get("nota", "") == nota:
             nueva = it["cantidad"] + cantidad
-            if nueva > stock and not _permitir_sin_stock():
+            if nueva > stock and not _sin_limite(prod):
                 _toast(f"Solo hay {stock} unidades de {prod['sku']}", "⚠️")
                 return False
             it["cantidad"] = nueva
             it["descuento_pct"] = descuento or it["descuento_pct"]
             _toast(f"{prod['nombre']} → {nueva} und")
             return True
-    if cantidad > stock and not _permitir_sin_stock():
+    if cantidad > stock and not _sin_limite(prod):
         _toast(f"{prod['sku']} sin stock suficiente", "⚠️")
         return False
     ss.pos_carrito.append({
         "producto_id": prod["id"], "sku": prod["sku"], "nombre": prod["nombre"],
-        "precio_usd": float(prod["precio_usd"] or 0), "stock": stock,
+        "precio_usd": precio_final, "stock": stock, "servicio": servicio, "nota": nota,
         "exento_iva": bool(prod.get("exento_iva")), "cantidad": int(cantidad),
         "descuento_pct": float(descuento),
     })
@@ -188,6 +205,9 @@ def _buscar(texto: str, categoria_id):
 def dialog_agregar(prod: dict):
     ss = st.session_state
     tasa, cfg = ss._pos_tasa, ss._pos_cfg
+    if _es_servicio(prod):
+        _agregar_servicio(prod, tasa)
+        return
     stock = int(prod.get("stock_actual") or 0)
     en_carrito = next((it["cantidad"] for it in ss.pos_carrito if it["producto_id"] == prod["id"]), 0)
     disponible = stock - en_carrito
@@ -230,6 +250,30 @@ def dialog_agregar(prod: dict):
         st.rerun()
     if b.button("✅ Agregar al carrito", type="primary", use_container_width=True):
         _agregar(prod, int(cantidad), descuento)
+        st.rerun()
+
+
+def _agregar_servicio(prod: dict, tasa):
+    """Contenido de la ventana 'Agregar' para un servicio: precio libre, nota y sin stock."""
+    precio_lista = float(prod["precio_usd"] or 0)
+    st.markdown(f"### 🛠️ {prod['nombre']}")
+    st.caption(f"Código `{prod['sku']}` · Servicio (no descuenta inventario)"
+               + (" · Exento de IVA" if prod.get("exento_iva") else ""))
+    precio = st.number_input("Precio a cobrar por el servicio ($)", min_value=0.0, step=0.5, format="%.2f",
+                             value=precio_lista,
+                             help="Viene con el precio de lista; cámbialo si este trabajo cuesta distinto.")
+    nota = st.text_input("Detalle del trabajo (opcional)", max_chars=80,
+                         placeholder="Ej: Corolla 2015, faros delanteros",
+                         help="Sale en el comprobante junto al nombre del servicio.")
+    cantidad = st.number_input("Cantidad", min_value=1, step=1, value=1)
+    sub = U.r2(U.D(precio) * cantidad)
+    st.info(f"**Subtotal:** {U.fmt_usd(sub)}  ·  {U.fmt_bs(sub * tasa)}  (sin IVA)")
+
+    a, b = st.columns(2)
+    if a.button("Cancelar", use_container_width=True):
+        st.rerun()
+    if b.button("✅ Agregar al carrito", type="primary", use_container_width=True, disabled=precio <= 0):
+        _agregar(prod, int(cantidad), 0.0, precio=float(precio), nota=nota)
         st.rerun()
 
 
@@ -404,7 +448,10 @@ def _finalizar():
         "rif": cli["rif"], "nombre": cli["nombre"], "telefono": cli.get("telefono", ""),
         "direccion": cli.get("direccion", "")}
     items = [{"producto_id": it["producto_id"], "cantidad": int(it["cantidad"]),
-              "descuento_pct": float(it["descuento_pct"])} for it in ss.pos_carrito]
+              "descuento_pct": float(it["descuento_pct"]),
+              # Solo los servicios usan precio libre y nota (la base de datos los ignora en productos)
+              **({"precio_usd": float(it["precio_usd"]), "nota": it.get("nota", "")} if it.get("servicio") else {})}
+             for it in ss.pos_carrito]
     try:
         with st.spinner("Registrando venta..."):
             res = supabase.rpc("registrar_venta", {
@@ -486,7 +533,8 @@ def dialog_detalle(venta_id: int):
         st.caption("Solo un administrador puede anular ventas.")
         return
     with st.expander("↩️ Anular esta venta"):
-        st.caption("El stock regresa al inventario y se emite una nota de crédito con la tasa BCV original "
+        st.caption("El stock de los productos regresa al inventario (los servicios no) y se emite una nota "
+                   "de crédito con la tasa BCV original "
                    f"(Bs. {U.fmt_num(venta['tasa_bcv'], 4)}).")
         motivo = st.text_area("Motivo (mínimo 10 caracteres)", key="dlg_motivo_anula")
         seguro = st.checkbox("Confirmo que deseo anular esta venta", key="dlg_confirma_anula")
@@ -504,9 +552,9 @@ def dialog_detalle(venta_id: int):
 # PANTALLA PRINCIPAL
 # =====================================================================
 def _catalogo(tasa):
-    st.subheader("1️⃣ Busca y agrega productos")
+    st.subheader("1️⃣ Busca y agrega productos o servicios")
     st.text_input("Buscar producto", key="pos_busqueda", on_change=_cb_escaner, label_visibility="collapsed",
-                  placeholder="🔍 Escribe nombre, SKU o marca… o escanea el código de barras")
+                  placeholder="🔍 Escribe nombre, código o marca… o escanea el código de barras")
 
     cat_id = None
     if U.es_verdadero(st.session_state._pos_cfg.get("usar_categorias", "true")):
@@ -530,19 +578,26 @@ def _catalogo(tasa):
     cols = st.columns(3)
     for i, p in enumerate(productos):
         stock = int(p.get("stock_actual") or 0)
+        servicio = _es_servicio(p)
         with cols[i % 3].container(border=True):
-            st.markdown(f"**{p['nombre']}**")
+            st.markdown(f"**{'🛠️ ' if servicio else ''}{p['nombre']}**")
             st.caption(f"`{p['sku']}`" + (f" · {p['marca']}" if p.get("marca") else ""))
-            st.markdown(f"<span class='pos-precio'>{U.fmt_usd(p['precio_usd'])}</span><br>"
-                        f"<small>{U.fmt_bs(U.D(p['precio_usd']) * tasa)}</small>", unsafe_allow_html=True)
-            if stock <= 0:
+            if servicio and U.D(p["precio_usd"]) <= 0:
+                st.markdown("<span class='pos-precio'>Precio a convenir</span><br><small>se escribe al agregar</small>",
+                            unsafe_allow_html=True)
+            else:
+                st.markdown(f"<span class='pos-precio'>{U.fmt_usd(p['precio_usd'])}</span><br>"
+                            f"<small>{U.fmt_bs(U.D(p['precio_usd']) * tasa)}</small>", unsafe_allow_html=True)
+            if servicio:
+                st.caption("🛠️ Servicio · sin inventario")
+            elif stock <= 0:
                 st.caption("❌ Agotado")
             elif stock <= 3:
                 st.caption(f"⚠️ Quedan {stock}")
             else:
                 st.caption(f"✅ {stock} disponibles")
             if st.button("➕ Agregar", key=f"pos_add_{p['id']}", use_container_width=True,
-                         disabled=stock <= 0 and not _permitir_sin_stock()):
+                         disabled=stock <= 0 and not _sin_limite(p)):
                 dialog_agregar(p)
 
 
@@ -558,9 +613,10 @@ def _ticket(tasa, cfg):
         sub = _subtotal(it)
         with st.container(border=True):
             a, b = st.columns([3, 2])
-            a.markdown(f"**{it['nombre']}**")
+            a.markdown(f"**{'🛠️ ' if it.get('servicio') else ''}{it['nombre']}**")
             a.caption(f"{it['sku']} · {U.fmt_usd(it['precio_usd'])} c/u"
-                      + (f" · −{it['descuento_pct']:.0f}%" if it["descuento_pct"] else ""))
+                      + (f" · −{it['descuento_pct']:.0f}%" if it["descuento_pct"] else "")
+                      + (f" · {it['nota']}" if it.get("nota") else ""))
             b.markdown(f"<div style='text-align:right'><b>{U.fmt_usd(sub)}</b><br>"
                        f"<small>{U.fmt_bs(sub * tasa)}</small></div>", unsafe_allow_html=True)
             m1, m2, m3, m4 = st.columns(4)
@@ -569,7 +625,7 @@ def _ticket(tasa, cfg):
                 st.rerun()
             m2.markdown(f"<div style='text-align:center;padding-top:.45rem'><b>{it['cantidad']}</b></div>",
                         unsafe_allow_html=True)
-            tope = it["cantidad"] >= it["stock"] and not _permitir_sin_stock()
+            tope = not it.get("servicio") and it["cantidad"] >= it["stock"] and not _permitir_sin_stock()
             if m3.button("➕", key=f"pos_mas_{i}", use_container_width=True, disabled=tope):
                 it["cantidad"] += 1
                 st.rerun()

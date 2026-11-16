@@ -20,7 +20,7 @@ MOTIVOS = {
 def _productos() -> list[dict]:
     try:
         return (supabase.table("productos").select("id, sku, nombre, stock_actual, costo_usd, precio_usd")
-                .order("nombre").limit(5000).execute().data or [])
+                .neq("tipo", "SERVICIO").order("nombre").limit(5000).execute().data or [])
     except Exception:
         return []
 

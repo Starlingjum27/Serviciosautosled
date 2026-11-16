@@ -13,6 +13,13 @@ from app.db import supabase
 from app import utils as U
 
 PREFIJO_GENERAL = "PRD"
+PREFIJO_SERVICIO = "SRV"
+TIPOS = {"PRODUCTO": "📦 Producto (lleva inventario)", "SERVICIO": "🛠️ Servicio / mano de obra (sin inventario)"}
+
+
+def es_servicio(prod) -> bool:
+    """Acepta dict o fila de pandas."""
+    return str((prod.get("tipo") if hasattr(prod, "get") else None) or "PRODUCTO").upper() == "SERVICIO"
 
 
 # =====================================================================
@@ -33,9 +40,11 @@ def obtener_categorias():
         return []
 
 
-def generar_sku(nombre_categoria: str | None = None) -> str:
-    """Prefijo de 3 letras de la categoría (o PRD) + siguiente número libre: LED-0007, PRD-0012."""
-    if nombre_categoria:
+def generar_sku(nombre_categoria: str | None = None, servicio: bool = False) -> str:
+    """Prefijo de 3 letras de la categoría (o PRD; SRV para servicios) + siguiente número libre: LED-0007, SRV-0003."""
+    if servicio:
+        prefijo = PREFIJO_SERVICIO
+    elif nombre_categoria:
         texto = unicodedata.normalize("NFKD", nombre_categoria).encode("ASCII", "ignore").decode("utf-8")
         texto = re.sub(r"[^A-Z0-9]", "", texto.upper())
         prefijo = texto[:3].ljust(3, "X")
@@ -63,20 +72,31 @@ def _selector_categoria(categorias, actual_id=None):
 # =====================================================================
 # VENTANAS
 # =====================================================================
-@st.dialog("➕ Nuevo producto")
+@st.dialog("➕ Nuevo producto o servicio")
 def dialog_nuevo_producto():
+    tipo = st.radio("¿Qué vas a registrar?", list(TIPOS), format_func=TIPOS.get, horizontal=True)
+    servicio = tipo == "SERVICIO"
     usar = usa_categorias()
     categoria = _selector_categoria(obtener_categorias()) if usar else None
-    sku_auto = generar_sku(categoria["nombre"] if categoria else None)
-    st.info(f"🔢 SKU que se asignará: **{sku_auto}**")
+    sku_auto = generar_sku(categoria["nombre"] if categoria else None, servicio=servicio)
+    st.info(f"🔢 Código que se asignará: **{sku_auto}**")
 
-    nombre = st.text_input("Nombre del producto *")
-    marca = st.text_input("Marca")
+    nombre = st.text_input("Nombre del servicio *" if servicio else "Nombre del producto *",
+                           placeholder="Ej: Instalación de faros LED" if servicio else "")
+    marca = "" if servicio else st.text_input("Marca")
     col1, col2 = st.columns(2)
-    precio_usd = col1.number_input("Precio de venta (USD) *", min_value=0.0, step=0.01, format="%.2f")
-    costo_usd = col1.number_input("Costo (USD)", min_value=0.0, step=0.01, format="%.2f")
-    stock_actual = col2.number_input("Stock inicial", min_value=0, step=1)
-    stock_minimo = col2.number_input("Stock mínimo", min_value=0, step=1, value=5)
+    precio_usd = col1.number_input("Precio de venta (USD)" + ("" if servicio else " *"),
+                                   min_value=0.0, step=0.01, format="%.2f",
+                                   help="Déjalo en 0 si el precio se decide en cada trabajo: se escribe al vender."
+                                   if servicio else None)
+    costo_usd = col1.number_input("Costo (USD)", min_value=0.0, step=0.01, format="%.2f",
+                                  help="Lo que te cuesta hacerlo (ej. pago al técnico). Opcional." if servicio else None)
+    if servicio:
+        stock_actual, stock_minimo = 0, 0
+        col2.caption("🛠️ Los servicios no llevan inventario: no se compran ni se descuentan del stock.")
+    else:
+        stock_actual = col2.number_input("Stock inicial", min_value=0, step=1)
+        stock_minimo = col2.number_input("Stock mínimo", min_value=0, step=1, value=5)
     exento = st.checkbox("Exento de IVA")
     if precio_usd > 0 and costo_usd > 0:
         m = U.margen_pct(precio_usd, costo_usd)
@@ -86,21 +106,21 @@ def dialog_nuevo_producto():
     col_g, col_c = st.columns(2)
     if col_c.button("Cancelar", use_container_width=True):
         st.rerun()
-    if col_g.button("💾 Guardar producto", use_container_width=True, type="primary"):
-        if not nombre.strip() or precio_usd <= 0:
+    if col_g.button("💾 Guardar", use_container_width=True, type="primary"):
+        if not nombre.strip() or (precio_usd <= 0 and not servicio):
             st.error("El nombre y el precio de venta son obligatorios.")
             return
         try:
             supabase.table("productos").insert({
                 "sku": sku_auto, "nombre": nombre.strip(), "marca": marca.strip() or None,
-                "categoria_id": categoria["id"] if categoria else None,
+                "categoria_id": categoria["id"] if categoria else None, "tipo": tipo,
                 "precio_usd": precio_usd, "costo_usd": costo_usd, "stock_actual": int(stock_actual),
                 "stock_minimo": int(stock_minimo), "exento_iva": exento, "activo": True,
             }).execute()
         except Exception as e:
             st.error(U.mensaje_error(e))
             return
-        st.toast(f"Producto {sku_auto} guardado ✅")
+        st.toast(f"{'Servicio' if servicio else 'Producto'} {sku_auto} guardado ✅")
         st.rerun()
 
 
@@ -112,21 +132,32 @@ def dialog_editar_producto(id_prod):
         st.error("No se pudo cargar el producto.")
         return
 
-    st.markdown(f"**SKU:** `{datos['sku']}`")
+    st.markdown(f"**Código:** `{datos['sku']}`")
+    stock_guardado = int(datos.get("stock_actual") or 0)
+    tipo_actual = "SERVICIO" if es_servicio(datos) else "PRODUCTO"
+    n_tipo = st.radio("Tipo", list(TIPOS), index=list(TIPOS).index(tipo_actual), format_func=TIPOS.get,
+                      horizontal=True, disabled=stock_guardado != 0,
+                      help="Para convertirlo en servicio primero debe quedar en 0 unidades." if stock_guardado else None)
+    servicio = n_tipo == "SERVICIO"
     usar = usa_categorias()
     categoria = _selector_categoria(obtener_categorias(), datos.get("categoria_id")) if usar else None
     n_nombre = st.text_input("Nombre", value=datos["nombre"])
     n_marca = st.text_input("Marca", value=datos.get("marca") or "")
     col1, col2 = st.columns(2)
-    n_precio = col1.number_input("Precio USD", value=float(datos.get("precio_usd") or 0), min_value=0.0, step=0.01, format="%.2f")
+    n_precio = col1.number_input("Precio USD", value=float(datos.get("precio_usd") or 0), min_value=0.0, step=0.01, format="%.2f",
+                                 help="En 0 el precio se escribe en cada venta." if servicio else None)
     n_costo = col1.number_input("Costo USD", value=float(datos.get("costo_usd") or 0), min_value=0.0, step=0.01, format="%.2f")
-    n_stock = col2.number_input("Stock actual", value=int(datos.get("stock_actual") or 0), min_value=0, step=1,
-                                help="Si lo cambias, queda registrado en el Kardex como ajuste manual.")
-    n_minimo = col2.number_input("Stock mínimo", value=int(datos.get("stock_minimo") or 0), min_value=0, step=1)
+    if servicio:
+        n_stock, n_minimo = 0, 0
+        col2.caption("🛠️ Servicio: no lleva inventario.")
+    else:
+        n_stock = col2.number_input("Stock actual", value=stock_guardado, min_value=0, step=1,
+                                    help="Si lo cambias, queda registrado en el Kardex como ajuste manual.")
+        n_minimo = col2.number_input("Stock mínimo", value=int(datos.get("stock_minimo") or 0), min_value=0, step=1)
     c3, c4 = st.columns(2)
     n_exento = c3.checkbox("Exento de IVA", value=bool(datos.get("exento_iva")))
     n_activo = c4.checkbox("Activo (se puede vender y comprar)", value=bool(datos.get("activo", True)))
-    if n_stock != int(datos.get("stock_actual") or 0):
+    if not servicio and n_stock != stock_guardado:
         st.warning("Para entradas de mercancía usa el módulo **📥 Compras**: así se registra el costo y el proveedor.")
 
     st.divider()
@@ -137,9 +168,12 @@ def dialog_editar_producto(id_prod):
         if not n_nombre.strip():
             st.error("El nombre es obligatorio.")
             return
+        if not servicio and n_precio <= 0:
+            st.error("Un producto necesita precio de venta.")
+            return
         cambios = {"nombre": n_nombre.strip(), "marca": n_marca.strip() or None, "precio_usd": n_precio,
                    "costo_usd": n_costo, "stock_actual": int(n_stock), "stock_minimo": int(n_minimo),
-                   "exento_iva": n_exento, "activo": n_activo}
+                   "exento_iva": n_exento, "activo": n_activo, "tipo": n_tipo}
         if usar:
             cambios["categoria_id"] = categoria["id"] if categoria else None
         try:
@@ -220,18 +254,19 @@ def dialog_eliminar_categoria(id_cat, nombre):
 # =====================================================================
 def _tab_catalogo(usar, tasa):
     c1, c2 = st.columns([3, 1])
-    if c2.button("➕ Nuevo producto", type="primary", use_container_width=True):
+    if c2.button("➕ Nuevo", type="primary", use_container_width=True, help="Producto o servicio"):
         dialog_nuevo_producto()
     with c1:
-        st.caption("Busca, revisa el stock y edita tus productos.")
+        st.caption("Busca, revisa el stock y edita tus productos y servicios.")
 
     if usar:
-        col_busq, col_filtro, col_estado = st.columns([3, 2, 2])
+        col_busq, col_filtro, col_tipo, col_estado = st.columns([3, 2, 2, 2])
         filtro_cat = col_filtro.selectbox("Categoría", ["Todas"] + [c["nombre"] for c in obtener_categorias()])
     else:
-        col_busq, col_estado = st.columns([4, 2])
+        col_busq, col_tipo, col_estado = st.columns([4, 2, 2])
         filtro_cat = "Todas"
-    busqueda = col_busq.text_input("Buscar por SKU, nombre o marca", "")
+    busqueda = col_busq.text_input("Buscar por código, nombre o marca", "")
+    filtro_tipo = col_tipo.selectbox("Tipo", ["Todos", "Productos", "Servicios"])
     ver = col_estado.selectbox("Mostrar", ["Activos", "Todos", "Inactivos"])
 
     try:
@@ -245,10 +280,16 @@ def _tab_catalogo(usar, tasa):
         return
 
     df = pd.DataFrame(productos)
-    for col, defecto in (("activo", True), ("marca", ""), ("stock_minimo", 0), ("categoria_id", None)):
+    for col, defecto in (("activo", True), ("marca", ""), ("stock_minimo", 0), ("categoria_id", None),
+                         ("tipo", "PRODUCTO")):
         if col not in df.columns:
             df[col] = defecto
     df["activo"] = df["activo"].fillna(True).astype(bool)
+    df["servicio"] = df["tipo"].fillna("PRODUCTO").astype(str).str.upper().eq("SERVICIO")
+    if filtro_tipo == "Productos":
+        df = df[~df["servicio"]]
+    elif filtro_tipo == "Servicios":
+        df = df[df["servicio"]]
     df["categoria"] = df["categoria_id"].map(lambda i: categorias.get(i, "Sin categoría"))
     if ver == "Activos":
         df = df[df["activo"]]
@@ -268,6 +309,8 @@ def _tab_catalogo(usar, tasa):
         stock, minimo = row["stock_actual"] or 0, row["stock_minimo"] or 0
         if not row["activo"]:
             return "🚫 Inactivo"
+        if row["servicio"]:
+            return "🛠️ Servicio"
         if stock <= 0:
             return "❌ Agotado"
         return "⚠️ Bajo" if stock <= minimo else "✅ OK"
@@ -275,7 +318,8 @@ def _tab_catalogo(usar, tasa):
     tabla = pd.DataFrame({
         "SKU": df["sku"], "Producto": df["nombre"], "Marca": df["marca"].fillna(""),
         **({"Categoría": df["categoria"]} if usar else {}),
-        "Stock": df["stock_actual"].fillna(0).astype(int), "Estado": df.apply(alerta, axis=1),
+        "Stock": df.apply(lambda r: "—" if r["servicio"] else str(int(r["stock_actual"] or 0)), axis=1),
+        "Estado": df.apply(alerta, axis=1),
         "Precio $": df["precio_usd"].astype(float),
         "Precio Bs": (df["precio_usd"].astype(float) * float(tasa)) if tasa else 0.0,
     })
@@ -283,13 +327,15 @@ def _tab_catalogo(usar, tasa):
         "Precio $": st.column_config.NumberColumn(format="%.2f"),
         "Precio Bs": st.column_config.NumberColumn(format="%.2f"),
     })
-    st.caption(f"{len(tabla)} producto(s)")
+    n_serv = int(df["servicio"].sum())
+    st.caption(f"{len(tabla) - n_serv} producto(s)" + (f" · {n_serv} servicio(s)" if n_serv else ""))
 
     st.markdown("#### 🛠️ Editar o eliminar")
     admin = U.es_admin_actual(supabase)
     for _, p in df.head(30).iterrows():
         col_info, col_edit, col_del = st.columns([6, 1, 1])
-        col_info.write(f"`{p['sku']}` — {p['nombre']}" + ("" if p["activo"] else "  ·  🚫"))
+        col_info.write(f"`{p['sku']}` — {p['nombre']}" + ("  ·  🛠️" if p["servicio"] else "")
+                       + ("" if p["activo"] else "  ·  🚫"))
         if col_edit.button("✏️", key=f"btn_edit_{p['id']}", help="Editar"):
             dialog_editar_producto(p["id"])
         if col_del.button("🗑️", key=f"btn_del_{p['id']}", disabled=not admin,
