@@ -1,0 +1,24 @@
+# Despliegue de la app móvil (carpeta movil/) en Netlify.
+#
+# Opción A · Arrastrar y soltar (como se hace hoy):
+#   arrastra la carpeta movil/ (con tu config.js dentro) a app.netlify.com → Deploys.
+#   Este archivo no interviene.
+#
+# Opción B · Conectar Netlify con este repositorio de GitHub (se publica solo en cada push):
+#   en Netlify → Site configuration → Environment variables crea
+#   SUPABASE_URL y SUPABASE_ANON_KEY; el comando de abajo genera config.js al publicar.
+[build]
+  base = "movil"
+  publish = "."
+  command = "printf 'window.APP_CONFIG = { SUPABASE_URL: \"%s\", SUPABASE_ANON_KEY: \"%s\" };\\n' \"$SUPABASE_URL\" \"$SUPABASE_ANON_KEY\" > config.js"
+
+# El service worker y config.js no deben quedarse en caché del navegador.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "no-cache"

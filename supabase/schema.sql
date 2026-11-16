@@ -1,0 +1,2 @@
+-- PENDIENTE: este archivo debe contener el esquema exportado desde Supabase.
+-- Corre supabase/exportar_esquema.sql en el SQL Editor de Supabase y pega aquí el resultado.
