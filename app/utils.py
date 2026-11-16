@@ -142,6 +142,16 @@ def es_admin(cfg: dict, email: str | None) -> bool:
     return not lista or (email or "").lower() in lista
 
 
+def es_admin_actual(supabase) -> bool:
+    """¿El usuario de esta sesión es administrador? (misma regla que public.es_admin() en SQL)."""
+    import streamlit as st
+    usuario = st.session_state.get("usuario")
+    return es_admin(obtener_config(supabase), getattr(usuario, "email", None))
+
+
+MSG_SOLO_ADMIN = "Solo un administrador puede eliminar. Pídeselo a un administrador o desactívalo en su lugar."
+
+
 # ---------------------------------------------------------------- cálculo fiscal
 def calcular_totales(items: list[dict], pagos: list[dict], tasa, cfg: dict) -> dict:
     """

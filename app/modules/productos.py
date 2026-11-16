@@ -160,7 +160,7 @@ def dialog_eliminar_producto(id_prod, sku, nombre):
         st.rerun()
     if col1.button("🗑️ Sí, eliminar", use_container_width=True, type="primary"):
         try:
-            supabase.table("productos").delete().eq("id", id_prod).execute()
+            r = supabase.table("productos").delete().eq("id", id_prod).execute()
         except Exception as e:
             msg = U.mensaje_error(e)
             if "foreign key" in msg.lower() or "violates" in msg.lower():
@@ -168,6 +168,9 @@ def dialog_eliminar_producto(id_prod, sku, nombre):
                          "Desactívalo desde **✏️ Editar** para que no aparezca más.")
             else:
                 st.error(msg)
+            return
+        if not r.data:  # la base de datos no borró nada (permisos)
+            st.error(U.MSG_SOLO_ADMIN)
             return
         st.toast("Producto eliminado")
         st.rerun()
@@ -201,7 +204,14 @@ def dialog_eliminar_categoria(id_cat, nombre):
     if col2.button("Cancelar", use_container_width=True):
         st.rerun()
     if col1.button("🗑️ Sí, eliminar", use_container_width=True, type="primary"):
-        supabase.table("categorias").delete().eq("id", id_cat).execute()
+        try:
+            r = supabase.table("categorias").delete().eq("id", id_cat).execute()
+        except Exception as e:
+            st.error(U.mensaje_error(e))
+            return
+        if not r.data:  # la base de datos no borró nada (permisos)
+            st.error(U.MSG_SOLO_ADMIN)
+            return
         st.rerun()
 
 
@@ -276,12 +286,14 @@ def _tab_catalogo(usar, tasa):
     st.caption(f"{len(tabla)} producto(s)")
 
     st.markdown("#### 🛠️ Editar o eliminar")
+    admin = U.es_admin_actual(supabase)
     for _, p in df.head(30).iterrows():
         col_info, col_edit, col_del = st.columns([6, 1, 1])
         col_info.write(f"`{p['sku']}` — {p['nombre']}" + ("" if p["activo"] else "  ·  🚫"))
         if col_edit.button("✏️", key=f"btn_edit_{p['id']}", help="Editar"):
             dialog_editar_producto(p["id"])
-        if col_del.button("🗑️", key=f"btn_del_{p['id']}", help="Eliminar"):
+        if col_del.button("🗑️", key=f"btn_del_{p['id']}", disabled=not admin,
+                          help="Eliminar" if admin else "Solo un administrador puede eliminar"):
             dialog_eliminar_producto(p["id"], p["sku"], p["nombre"])
     if len(df) > 30:
         st.caption("Se muestran los primeros 30. Usa el buscador para encontrar el que necesitas.")
@@ -302,12 +314,14 @@ def _tab_categorias():
     categorias = obtener_categorias()
     if not categorias:
         st.info("No hay categorías registradas.")
+    admin = U.es_admin_actual(supabase)
     for cat in categorias:
         col1, col2, col3 = st.columns([5, 1, 1])
         col1.write(f"📁 **{cat['nombre']}**")
         if col2.button("✏️", key=f"edit_cat_{cat['id']}", help="Editar"):
             dialog_editar_categoria(cat["id"], cat["nombre"])
-        if col3.button("🗑️", key=f"del_cat_{cat['id']}", help="Eliminar"):
+        if col3.button("🗑️", key=f"del_cat_{cat['id']}", disabled=not admin,
+                       help="Eliminar" if admin else "Solo un administrador puede eliminar"):
             dialog_eliminar_categoria(cat["id"], cat["nombre"])
 
 
