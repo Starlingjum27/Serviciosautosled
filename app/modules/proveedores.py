@@ -106,14 +106,17 @@ def dialog_estado(prov: dict, tiene_compras: bool):
     if b.button("Confirmar", type="primary", use_container_width=True):
         supabase.table("proveedores").update({"activo": not prov["activo"]}).eq("id", prov["id"]).execute()
         st.rerun()
-    if not tiene_compras:
+    if not tiene_compras and U.es_admin_actual(supabase):
         st.divider()
         st.caption("Este proveedor no tiene compras, así que también puedes eliminarlo definitivamente.")
         if st.button("🗑️ Eliminar definitivamente", use_container_width=True):
             try:
-                supabase.table("proveedores").delete().eq("id", prov["id"]).execute()
+                r = supabase.table("proveedores").delete().eq("id", prov["id"]).execute()
             except Exception as e:
                 st.error(U.mensaje_error(e))
+                return
+            if not r.data:  # la base de datos no borró nada (permisos)
+                st.error(U.MSG_SOLO_ADMIN)
                 return
             st.rerun()
 

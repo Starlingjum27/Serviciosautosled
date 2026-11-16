@@ -85,6 +85,14 @@ Supabase. Para respaldarlas:
 
 Repite el paso cada vez que cambies una tabla, función o política en Supabase.
 
+Los cambios a la base de datos se guardan como scripts fechados en `supabase/migraciones/`
+(por ejemplo `2026-11-15_seguridad.sql`). Córrelos en el SQL Editor y luego vuelve a exportar el esquema.
+
+**Administradores:** se definen en la app, en Configuración → Seguridad (lista de correos).
+Si la lista está vacía, todos los usuarios son administradores. La base de datos aplica la misma regla
+(función `es_admin()`): solo los administradores pueden cambiar la configuración, borrar productos,
+proveedores, clientes, categorías o tasas, y anular documentos.
+
 > ⚠️ El plan gratis de Supabase **no hace respaldos de datos** y pausa el proyecto tras 7 días sin uso.
 > Respalda los datos con regularidad (Table Editor → Export to CSV, o un script de respaldo).
 

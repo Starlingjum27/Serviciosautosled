@@ -21,6 +21,19 @@ tablas as (
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public' and c.relkind in ('r', 'p')
 ),
+-- 0) Secuencias propias (numeración NE-/CP-/NC-); las de columnas identity se omiten
+ddl_secuencias as (
+  select 5 as orden, c.relname as nombre,
+         format('create sequence if not exists public.%I as %s increment by %s minvalue %s maxvalue %s start with %s%s;',
+                c.relname, format_type(s.seqtypid, null), s.seqincrement, s.seqmin, s.seqmax, s.seqstart,
+                case when s.seqcycle then ' cycle' else '' end) as ddl
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  join pg_sequence s on s.seqrelid = c.oid
+  where n.nspname = 'public' and c.relkind = 'S'
+    and not exists (select 1 from pg_depend dp
+                    where dp.objid = c.oid and dp.deptype in ('i', 'a'))
+),
 -- 1) CREATE TABLE con columnas, tipos, defaults y NOT NULL
 ddl_tablas as (
   select 10 as orden, t.relname as nombre,
@@ -96,7 +109,8 @@ ddl_politicas as (
   where schemaname = 'public'
 ),
 todo as (
-  select * from ddl_tablas
+  select * from ddl_secuencias
+  union all select * from ddl_tablas
   union all select * from ddl_restricciones
   union all select * from ddl_indices
   union all select * from ddl_vistas
